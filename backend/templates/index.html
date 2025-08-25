@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent PLC Code Generation System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Simple transition for the thinking process container */
+        .max-h-0 { max-height: 0; }
+        .max-h-screen { max-height: 100vh; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Multi-Agent PLC Code Generation System</h1>
+            <p class="text-gray-600 mt-2">Enter a narrative prompt to generate IEC 61131-3 Structured Text code.</p>
+        </header>
+
+        <main class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-200">
+            <div>
+                <label for="prompt-input" class="block text-lg font-semibold mb-2 text-gray-700">Your Prompt</label>
+                <textarea id="prompt-input" rows="4" class="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200" placeholder="e.g., Create a program that turns on a motor when a start button is pressed and turns it off when a stop button is pressed."></textarea>
+            </div>
+
+            <div class="mt-6 text-center">
+                <button id="generate-btn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 transition-transform transform hover:scale-105 duration-300">
+                    Generate Code
+                </button>
+            </div>
+
+            <!-- Results Section (Initially Hidden) -->
+            <div id="results-section" class="mt-8 hidden">
+                
+                <!-- Main Result Display -->
+                <div id="main-result-container">
+                     <h3 class="text-lg font-semibold text-gray-800 mb-2">Result</h3>
+                     <div id="validation-result" class="p-4 rounded-lg mb-4"></div>
+                     <div id="code-container">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-lg font-semibold text-gray-800">Generated Structured Text</h3>
+                            <button id="copy-btn" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-300 transition">Copy Code</button>
+                        </div>
+                        <div class="bg-gray-900 text-white p-4 rounded-lg overflow-x-auto">
+                            <pre><code id="code-output" class="language-structured-text"></code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Thinking Process Section (Collapsible) -->
+                <div class="mt-6">
+                    <button id="toggle-thinking-btn" class="w-full text-left font-semibold text-gray-700 p-3 bg-gray-100 rounded-lg hover:bg-gray-200 transition">
+                        Show Thinking Process...
+                    </button>
+                    <div id="status-container" class="overflow-hidden max-h-0 transition-max-height duration-500 ease-in-out mt-2 p-4 bg-gray-100 rounded-lg">
+                        <div id="status-updates" class="space-y-4 text-gray-600"></div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+        <footer class="text-center mt-8 text-gray-500">
+            <p>&copy; 2025 PLC Code Generation System. Built with AutoGen & NVIDIA NIM.</p>
+        </footer>
+    </div>
+
+    <script>
+        const generateBtn = document.getElementById('generate-btn');
+        const promptInput = document.getElementById('prompt-input');
+        const resultsSection = document.getElementById('results-section');
+        const validationResult = document.getElementById('validation-result');
+        const codeContainer = document.getElementById('code-container');
+        const codeOutput = document.getElementById('code-output');
+        const copyBtn = document.getElementById('copy-btn');
+        const toggleThinkingBtn = document.getElementById('toggle-thinking-btn');
+        const statusContainer = document.getElementById('status-container');
+        const statusUpdates = document.getElementById('status-updates');
+
+        generateBtn.addEventListener('click', handleGeneration);
+        copyBtn.addEventListener('click', copyCodeToClipboard);
+        toggleThinkingBtn.addEventListener('click', toggleThinkingProcess);
+
+        async function handleGeneration() {
+            const prompt = promptInput.value;
+            if (!prompt.trim()) {
+                alert('Please enter a prompt.');
+                return;
+            }
+
+            resetUI();
+            resultsSection.classList.remove('hidden');
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Generating...';
+            
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                displayResults(result);
+
+            } catch (error) {
+                console.error("Error during generation:", error);
+                displayError(error.message);
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'Generate New Code';
+            }
+        }
+
+        function displayResults(result) {
+            // Display main result
+            if (result.success) {
+                validationResult.className = 'p-4 rounded-lg bg-green-100 text-green-800';
+                validationResult.innerHTML = `✅ ${result.final_validation_message}`;
+            } else {
+                validationResult.className = 'p-4 rounded-lg bg-red-100 text-red-800';
+                validationResult.innerHTML = `❌ Compilation Failed. The agent conversation is shown below.`;
+                // If it failed, automatically show the thinking process
+                toggleThinkingProcess();
+            }
+            codeOutput.textContent = result.generated_code;
+
+            // Populate the hidden thinking process
+            statusUpdates.innerHTML = ''; 
+            result.history.forEach(msg => {
+                const role = msg.role;
+                const content = msg.content.replace(/\n/g, '<br>');
+                addStatus(`<strong>${role}:</strong><br>${content}`);
+            });
+        }
+        
+        function displayError(errorMessage) {
+            validationResult.className = 'p-4 rounded-lg bg-red-100 text-red-800';
+            validationResult.textContent = `An error occurred: ${errorMessage}`;
+            codeContainer.classList.add('hidden');
+        }
+
+        function resetUI() {
+            resultsSection.classList.add('hidden');
+            statusUpdates.innerHTML = '';
+            statusContainer.classList.remove('max-h-screen');
+            statusContainer.classList.add('max-h-0');
+            toggleThinkingBtn.textContent = 'Show Thinking Process...';
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Generate Code';
+            codeContainer.classList.remove('hidden');
+        }
+
+        function addStatus(message) {
+            const statusDiv = document.createElement('div');
+            statusDiv.innerHTML = message;
+            statusDiv.className = 'pb-4 mb-4 border-b border-gray-200 last:border-b-0';
+            statusUpdates.appendChild(statusDiv);
+        }
+
+        function copyCodeToClipboard() {
+            const codeToCopy = codeOutput.textContent;
+            const tempTextArea = document.createElement('textarea');
+            tempTextArea.value = codeToCopy;
+            document.body.appendChild(tempTextArea);
+            tempTextArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempTextArea);
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyBtn.textContent = 'Copy Code'; }, 2000);
+        }
+
+        function toggleThinkingProcess() {
+            const isHidden = statusContainer.classList.contains('max-h-0');
+            if (isHidden) {
+                statusContainer.classList.remove('max-h-0');
+                statusContainer.classList.add('max-h-screen');
+                toggleThinkingBtn.textContent = 'Hide Thinking Process';
+            } else {
+                statusContainer.classList.remove('max-h-screen');
+                statusContainer.classList.add('max-h-0');
+                toggleThinkingBtn.textContent = 'Show Thinking Process...';
+            }
+        }
+    </script>
+</body>
+</html>
