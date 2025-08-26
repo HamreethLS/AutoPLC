@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoPLC | Intelligent Code Generation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* Dark background */
+        }
+        .font-mono {
+            font-family: 'Roboto Mono', monospace;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        /* Glassmorphism effect */
+        .glass-pane {
+            background: rgba(31, 41, 55, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        /* Animated gradient for buttons */
+        .btn-animated-gradient {
+            background-size: 200% auto;
+            transition: background-position 0.5s;
+        }
+        .btn-animated-gradient:hover {
+            background-position: right center;
+        }
+        /* Keyframe animations for agent nodes */
+        @keyframes pulse-node {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.8; }
+        }
+        .node-active {
+            animation: pulse-node 1.5s infinite ease-in-out;
+        }
+        /* Syntax highlighting placeholders */
+        .token.keyword { color: #c792ea; }
+        .token.comment { color: #6a9955; }
+        .token.operator { color: #89ddff; }
+        .token.number { color: #b5cea8; }
+        .token.string { color: #ce9178; }
+        .token.function { color: #dcdcaa; }
+        .token.variable { color: #9cdcfe; }
+        /* Modal styles */
+        .modal-overlay {
+            transition: opacity 0.3s ease;
+        }
+        .modal-content {
+            transition: transform 0.3s ease;
+        }
+    </style>
+</head>
+<body class="text-gray-300">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-6xl">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl md:text-5xl font-bold text-white">
+                Auto<span class="text-blue-400">PLC</span>
+            </h1>
+            <p class="text-gray-400 mt-2">Your AI-powered partner for IEC 61131-3 Structured Text generation.</p>
+        </header>
+
+        <main class="glass-pane p-6 md:p-8 rounded-2xl shadow-2xl">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                
+                <!-- Left Column: Input & Agent Visualization -->
+                <div>
+                    <label for="prompt-input" class="block text-lg font-semibold mb-3 text-gray-200">1. Describe the Logic</label>
+                    <textarea id="prompt-input" rows="6" class="w-full p-4 bg-gray-900 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200 text-gray-200 placeholder-gray-500" placeholder="e.g., Create a motor start/stop latch with E-stop and overload trip including a 'Running Lamp' indicator..."></textarea>
+                    
+                    <div class="mt-6 text-center">
+                        <button id="generate-btn" class="btn-animated-gradient bg-gradient-to-r from-blue-500 via-blue-600 to-purple-600 text-white font-bold py-3 px-12 rounded-lg hover:from-blue-600 hover:to-purple-700 focus:outline-none focus:ring-4 focus:ring-blue-400 focus:ring-opacity-50 transition-all duration-300 text-lg">
+                            Generate Code
+                        </button>
+                    </div>
+
+                    <!-- Agent Visualization -->
+                    <div id="agent-visualization" class="mt-8 hidden">
+                        <h3 class="text-lg font-semibold text-gray-200 mb-4 text-center">Agent Workflow</h3>
+                        <div class="relative flex justify-around items-center p-4">
+                            <!-- Connecting Lines -->
+                            <div class="absolute top-1/2 left-0 w-full h-0.5 bg-gray-600" style="transform: translateY(-50%);"></div>
+                            
+                            <!-- Agent Nodes -->
+                            <div id="planner-node" class="relative z-10 flex flex-col items-center text-center">
+                                <div class="w-16 h-16 bg-gray-700 border-2 border-gray-600 rounded-full flex items-center justify-center transition-all duration-300">
+                                    <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V7.618a1 1 0 01.553-.894L9 4m0 16v-8m0 0l6-3m-6 3v8m6-11l5.447 2.724A1 1 0 0121 7.618v8.764a1 1 0 01-.553.894L15 20m0-16v8m0 0l-6-3"></path></svg>
+                                </div>
+                                <p class="mt-2 text-sm font-medium text-gray-400">Planner</p>
+                            </div>
+                            <div id="coder-node" class="relative z-10 flex flex-col items-center text-center">
+                                <div class="w-16 h-16 bg-gray-700 border-2 border-gray-600 rounded-full flex items-center justify-center transition-all duration-300">
+                                    <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                                </div>
+                                <p class="mt-2 text-sm font-medium text-gray-400">Coder</p>
+                            </div>
+                            <div id="validator-node" class="relative z-10 flex flex-col items-center text-center">
+                                <div class="w-16 h-16 bg-gray-700 border-2 border-gray-600 rounded-full flex items-center justify-center transition-all duration-300">
+                                    <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                </div>
+                                <p class="mt-2 text-sm font-medium text-gray-400">Validator</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Output -->
+                <div id="results-section" class="hidden">
+                     <h3 class="text-lg font-semibold mb-3 text-gray-200">2. Generated Code</h3>
+                     <div id="validation-result" class="p-3 rounded-lg mb-4 text-sm"></div>
+                     <div id="code-container" class="relative">
+                        <div class="absolute top-3 right-3 flex space-x-2">
+                            <button id="copy-btn" class="bg-gray-700 text-gray-300 px-3 py-1 rounded-md text-xs font-medium hover:bg-gray-600 transition">Copy</button>
+                        </div>
+                        <div class="bg-gray-900 text-gray-200 p-4 rounded-lg overflow-x-auto h-96">
+                            <pre><code id="code-output" class="font-mono language-structured-text"></code></pre>
+                        </div>
+                    </div>
+                    <!-- Gemini Features -->
+                    <div id="gemini-features" class="mt-4 flex space-x-4 hidden">
+                        <button id="explain-btn" class="flex-1 btn-animated-gradient bg-gradient-to-r from-green-500 to-teal-600 text-white font-semibold py-2 px-4 rounded-lg">✨ Explain Code</button>
+                        <button id="improve-btn" class="flex-1 btn-animated-gradient bg-gradient-to-r from-orange-500 to-red-600 text-white font-semibold py-2 px-4 rounded-lg">✨ Suggest Improvements</button>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Gemini Modal -->
+    <div id="gemini-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay bg-black bg-opacity-70 hidden opacity-0">
+        <div class="modal-content bg-gray-800 text-gray-200 rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col transform scale-95">
+            <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                <h3 id="modal-title" class="text-xl font-bold text-white"></h3>
+                <button id="modal-close-btn" class="text-gray-400 hover:text-white">&times;</button>
+            </div>
+            <div id="modal-body" class="p-6 overflow-y-auto">
+                <!-- Content will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM References ---
+        const generateBtn = document.getElementById('generate-btn');
+        const promptInput = document.getElementById('prompt-input');
+        const resultsSection = document.getElementById('results-section');
+        const validationResult = document.getElementById('validation-result');
+        const codeOutput = document.getElementById('code-output');
+        const copyBtn = document.getElementById('copy-btn');
+        const geminiFeatures = document.getElementById('gemini-features');
+        const explainBtn = document.getElementById('explain-btn');
+        const improveBtn = document.getElementById('improve-btn');
+        const geminiModal = document.getElementById('gemini-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBody = document.getElementById('modal-body');
+        const modalCloseBtn = document.getElementById('modal-close-btn');
+        const agentVisualization = document.getElementById('agent-visualization');
+        const plannerNode = document.getElementById('planner-node').firstElementChild;
+        const coderNode = document.getElementById('coder-node').firstElementChild;
+        const validatorNode = document.getElementById('validator-node').firstElementChild;
+
+        // --- Event Listeners ---
+        generateBtn.addEventListener('click', handleGeneration);
+        copyBtn.addEventListener('click', copyCodeToClipboard);
+        explainBtn.addEventListener('click', () => handleGeminiFeature('explain'));
+        improveBtn.addEventListener('click', () => handleGeminiFeature('improve'));
+        modalCloseBtn.addEventListener('click', hideModal);
+        geminiModal.addEventListener('click', (e) => {
+            if (e.target === geminiModal) hideModal();
+        });
+
+        // --- Main Generation Logic ---
+        async function handleGeneration() {
+            const prompt = promptInput.value;
+            if (!prompt.trim()) {
+                alert('Please enter a prompt.');
+                return;
+            }
+
+            resetUI();
+            agentVisualization.classList.remove('hidden');
+            resultsSection.classList.remove('hidden');
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = `
+                <div class="flex items-center justify-center">
+                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Generating...
+                </div>`;
+            
+            try {
+                // Simulate agent activity for visualization
+                setActiveNode(plannerNode);
+                
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt })
+                });
+
+                // Simulate coder and validator activity after getting response
+                setActiveNode(coderNode);
+                await new Promise(res => setTimeout(res, 1000)); // Fake delay
+                setActiveNode(validatorNode);
+                await new Promise(res => setTimeout(res, 1000)); // Fake delay
+                setActiveNode(null);
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                displayResults(result);
+
+            } catch (error) {
+                console.error("Error during generation:", error);
+                displayError(error.message);
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'Generate New Code';
+                 setActiveNode(null);
+            }
+        }
+        
+        function displayResults(result) {
+            resultsSection.classList.remove('hidden');
+            if (result.success) {
+                validationResult.className = 'p-3 rounded-lg mb-4 text-sm bg-green-900 bg-opacity-50 text-green-300 border border-green-700';
+                validationResult.innerHTML = `<span class="font-bold">✅ Success:</span> ${result.final_validation_message}`;
+                geminiFeatures.classList.remove('hidden'); // Show Gemini buttons on success
+            } else {
+                validationResult.className = 'p-3 rounded-lg mb-4 text-sm bg-red-900 bg-opacity-50 text-red-300 border border-red-700';
+                validationResult.innerHTML = `<span class="font-bold">❌ Failed:</span> Compilation Error.`;
+            }
+            codeOutput.innerHTML = syntaxHighlight(result.generated_code);
+        }
+
+        function displayError(error) {
+             validationResult.className = 'p-3 rounded-lg mb-4 text-sm bg-red-900 bg-opacity-50 text-red-300 border border-red-700';
+             validationResult.innerHTML = `<span class="font-bold">❌ Error:</span> ${error}`;
+        }
+
+        // --- Gemini Feature Logic ---
+        async function handleGeminiFeature(feature) {
+            const code = codeOutput.textContent;
+            const title = feature === 'explain' ? 'Code Explanation' : 'Improvement Suggestions';
+            
+            showModal(title, '<p class="text-center">✨ Thinking...</p>');
+
+            try {
+                const response = await fetch(`/${feature}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: code })
+                });
+                if (!response.ok) throw new Error('Failed to get response from the server.');
+                
+                const data = await response.json();
+                // A simple markdown to HTML converter
+                const formattedContent = data.content
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\n/g, '<br>');
+                showModal(title, formattedContent);
+
+            } catch (error) {
+                showModal(title, `<p class="text-red-400">Error: ${error.message}</p>`);
+            }
+        }
+
+        // --- Modal & Utility Functions ---
+        function showModal(title, content) {
+            modalTitle.textContent = title;
+            modalBody.innerHTML = content;
+            geminiModal.classList.remove('hidden');
+            setTimeout(() => {
+                geminiModal.classList.remove('opacity-0');
+                geminiModal.querySelector('.modal-content').classList.remove('scale-95');
+            }, 10);
+        }
+
+        function hideModal() {
+            geminiModal.classList.add('opacity-0');
+            geminiModal.querySelector('.modal-content').classList.add('scale-95');
+            setTimeout(() => geminiModal.classList.add('hidden'), 300);
+        }
+
+        function resetUI() {
+            resultsSection.classList.add('hidden');
+            agentVisualization.classList.add('hidden');
+            geminiFeatures.classList.add('hidden');
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Generate Code';
+            setActiveNode(null);
+        }
+
+        function setActiveNode(node) {
+            const allNodes = [plannerNode, coderNode, validatorNode];
+            allNodes.forEach(n => {
+                n.classList.remove('bg-blue-500', 'border-blue-400', 'node-active', 'text-white');
+                n.classList.add('bg-gray-700', 'border-gray-600');
+                n.firstElementChild.classList.add('text-gray-400');
+            });
+            
+            if (node) {
+                node.classList.add('bg-blue-500', 'border-blue-400', 'node-active', 'text-white');
+                node.classList.remove('bg-gray-700', 'border-gray-600');
+                node.firstElementChild.classList.remove('text-gray-400');
+            }
+        }
+
+        function copyCodeToClipboard() {
+            navigator.clipboard.writeText(codeOutput.textContent).then(() => {
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+            });
+        }
+
+        function syntaxHighlight(code) {
+            let html = code;
+            // Escape HTML characters
+            html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            
+            // Keywords
+            html = html.replace(/\b(PROGRAM|VAR|END_VAR|VAR_INPUT|VAR_OUTPUT|END_FUNCTION_BLOCK|IF|THEN|ELSIF|ELSE|END_IF|BOOL|INT|REAL|TIME|AT|OR|AND|NOT|END_PROGRAM|VAR_GLOBAL|CONFIGURATION|END_CONFIGURATION|TASK|PROGRAM|WITH|END_PROGRAM)\b/g, '<span class="token keyword">$1</span>');
+            // Comments
+            html = html.replace(/(\(\*.*?\*\))/g, '<span class="token comment">$1</span>');
+            // Operators
+            html = html.replace(/(:=)/g, '<span class="token operator">$1</span>');
+            // Numbers
+            html = html.replace(/\b(\d+\.?\d*)\b/g, '<span class="token number">$1</span>');
+            
+            return html;
+        }
+    </script>
+</body>
+</html>

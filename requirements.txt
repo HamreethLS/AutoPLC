@@ -1,0 +1,4 @@
+pyautogen[openai]
+flask
+python-dotenv
+google-generativeai

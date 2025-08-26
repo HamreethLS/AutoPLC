@@ -1,0 +1,46 @@
+Metadata-Version: 2.4
+Name: pyautogen
+Version: 0.10.0
+Summary: A programming framework for agentic AI. Proxy package for autogen-agentchat.
+License:     MIT License
+        
+            Copyright (c) Microsoft Corporation.
+        
+            Permission is hereby granted, free of charge, to any person obtaining a copy
+            of this software and associated documentation files (the "Software"), to deal
+            in the Software without restriction, including without limitation the rights
+            to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+            copies of the Software, and to permit persons to whom the Software is
+            furnished to do so, subject to the following conditions:
+        
+            The above copyright notice and this permission notice shall be included in all
+            copies or substantial portions of the Software.
+        
+            THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+            IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+            FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+            AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+            LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+            OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+            SOFTWARE
+License-File: LICENSE-CODE
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Requires-Python: >=3.10
+Requires-Dist: autogen-agentchat>=0.6.4
+Description-Content-Type: text/markdown
+
+# pyautogen
+
+> **NOTE:** This is a proxy package for the latest version of [`autogen-agentchat`](https://pypi.org/project/autogen-agentchat/). If you are looking for the 0.2.x version, please pin to `pyautogen~=0.2.0`.
+> To migrate from 0.2.x to the latest version, please refer to the [migration guide](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/migration-guide.html).
+> Read our [previous clarification regarding to forks](https://github.com/microsoft/autogen/discussions/4217).
+> We have regained admin access to this package.
+
+AutoGen is a framework for creating multi-agent AI applications that can act autonomously or work alongside humans.
+
+- [Project homepage](https://github.com/microsoft/autogen)
+- [Documentation](https://microsoft.github.io/autogen/)
+- [Discord](https://aka.ms/autogen-discord)
+- [Contact](mailto:autogen@microsoft.com)
