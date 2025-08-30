@@ -9,7 +9,11 @@ import re
 from backend.agents.planner_agent import create_planner_agent
 from backend.agents.coder_agent import create_coder_agent
 from backend.agents.validator_agent import create_validator_agent
+from backend.agents.knowledge_agent import create_knowledge_agent
+from backend.agents.retrieval_agent import create_retrieval_agent # <-- IMPORT NEW AGENT
 from backend.tools.compiler import run_iec2c_compiler
+from backend.tools.knowledge_base import query_knowledge_base
+from backend.tools.retrieval_tools import search_tavily, search_mouser # <-- IMPORT NEW TOOLS
 
 # --- 1. INITIALIZATION ---
 load_dotenv()
@@ -20,103 +24,75 @@ app = Flask(__name__, template_folder=os.path.join(basedir, 'templates'))
 
 # --- HELPER FUNCTION ---
 def extract_code_block(text: str) -> str:
-    """Extracts a Structured Text code block from a string, cleaning up common LLM artifacts."""
-    # Clean up stdout/stdin tags that the model might add
-    text = re.sub(r'\[/?stdout\]', '', text, flags=re.IGNORECASE).strip()
-    
-    # Pattern to match ```...```, with an optional language identifier
-    pattern = r"```(?:st|iec|structuredtext|iec6113-3)?\n?(.*?)```"
+    """Extracts a Structured Text code block from a string."""
+    pattern = r"```(?:st|iec|structuredtext|structured text|iec6113-3)?\n?(.*?)```"
     match = re.search(pattern, text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    
-    # Fallback for code that isn't in a markdown block but is a valid program
     program_match = re.search(r"PROGRAM.*END_PROGRAM", text, re.DOTALL | re.IGNORECASE)
     if program_match:
         return program_match.group(0).strip()
-        
-    return text # Last resort fallback
+    return text
 
 # --- 2. CONFIGURE APIs ---
-# NVIDIA NIM API Key
 nim_api_key = os.getenv("NVIDIA_API_KEY")
 if not nim_api_key:
     raise ValueError("NVIDIA_API_KEY not found in .env file.")
-
-# Google Gemini API Key
 google_api_key = os.getenv("GOOGLE_API_KEY")
 if not google_api_key:
     raise ValueError("GOOGLE_API_KEY not found in .env file.")
 
 # --- MODEL CONFIGURATIONS ---
-# Gemini config for the Planner and GroupChat Manager
 llm_config_gemini = {
-    "config_list": [
-        {
-            "model": "gemini-1.5-pro-latest", 
-            "api_key": google_api_key,
-            "api_type": "google"
-        }
-    ],
+    "config_list": [{"model": "gemini-1.5-pro-latest", "api_key": google_api_key, "api_type": "google"}],
     "cache_seed": 42,
 }
-
-# NVIDIA NIM config for the Coder (Llama 3.1)
 llm_config_coder = {
-    "config_list": [
-        {
-            "model": "meta/llama-3.1-70b-instruct",
-            "api_key": nim_api_key,
-            "base_url": "https://integrate.api.nvidia.com/v1",
-            "api_type": "openai"
-        }
-    ],
+    "config_list": [{"model": "meta/llama-3.1-70b-instruct", "api_key": nim_api_key, "base_url": "https://integrate.api.nvidia.com/v1", "api_type": "openai"}],
     "cache_seed": 42,
 }
-
-# NVIDIA NIM config for the Validator (Nemotron-4 49B) - FINAL & VERIFIED
-llm_config_validator_base = {
-    "config_list": [
-        {
-            "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-            "api_key": nim_api_key,
-            "base_url": "https://integrate.api.nvidia.com/v1",
-            "api_type": "openai"
-        }
-    ],
+llm_config_tool_user = {
+    "config_list": [{"model": "nvidia/llama-3.3-nemotron-super-49b-v1.5", "api_key": nim_api_key, "base_url": "https://integrate.api.nvidia.com/v1", "api_type": "openai"}],
     "cache_seed": 42,
 }
-
 
 # --- 3. SETUP AUTOGEN WORKFLOW ---
-planner = create_planner_agent(llm_config_gemini)      # Planner uses Gemini
-coder = create_coder_agent(llm_config_coder)           # Coder uses Llama 3.1
+planner = create_planner_agent(llm_config_gemini)
+coder = create_coder_agent(llm_config_coder)
 
-# Create a dedicated, tool-enabled config for the Validator using Nemotron
-llm_config_validator = llm_config_validator_base.copy()
-llm_config_validator["tools"] = [{"type": "function","function": {"name": "run_iec2c_compiler","description": "Compiles Structured Text code.","parameters": {"type": "object","properties": {"code": {"type": "string"}},"required": ["code"],},},}]
-validator = create_validator_agent(llm_config_validator) # Validator now uses Nemotron
+# Agents that use tools will use the powerful Nemotron model
+validator = create_validator_agent(llm_config_tool_user)
+knowledge_agent = create_knowledge_agent(llm_config_tool_user)
+retrieval_agent = create_retrieval_agent(llm_config_tool_user) 
 
+# User Proxy with all tools mapped
 user_proxy = autogen.UserProxyAgent(
     name="UserProxy",
     human_input_mode="NEVER",
     code_execution_config=False, 
-    function_map={"run_iec2c_compiler": run_iec2c_compiler}
+    function_map={
+        "run_iec2c_compiler": run_iec2c_compiler,
+        "query_knowledge_base": query_knowledge_base,
+        "search_tavily": search_tavily,
+        "search_mouser": search_mouser,
+    }
 )
 
-groupchat = autogen.GroupChat(agents=[user_proxy, planner, coder, validator], messages=[], max_round=12)
-manager = autogen.GroupChatManager(groupchat=groupchat, llm_config=llm_config_gemini) # Manager uses Gemini for orchestration
-
+# Add the new agent to the group chat
+groupchat = autogen.GroupChat(
+    agents=[user_proxy, planner, knowledge_agent, retrieval_agent, coder, validator], 
+    messages=[], 
+    max_round=20 # Increased max rounds for more complex conversation
+)
+manager = autogen.GroupChatManager(groupchat=groupchat, llm_config=llm_config_gemini)
 
 # --- 4. FLASK ROUTES ---
 @app.route('/')
 def index():
-    """Serves the main HTML page."""
     return render_template('index.html')
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    """Handles the code generation request from the frontend."""
     try:
         data = request.get_json()
         prompt = data.get('prompt')
@@ -125,13 +101,8 @@ def generate():
         user_proxy.reset(); manager.reset()
         
         initial_message = f"""The user wants to generate Structured Text code for the following task: '{prompt}'.
-        This original request should be used by the Validator for semantic analysis.
         
-        Workflow:
-        1. The Planner will create a plan.
-        2. The Coder will write the code based on the plan.
-        3. The Validator will use the 'run_iec2c_compiler' tool for a syntax check AND perform a semantic check against the original request.
-        4. The UserProxy will execute the compiler tool call."""
+        The Planner must start by consulting the KnowledgeAgent for basic rules, and then the RetrievalAgent for any specific hardware details mentioned in the prompt."""
         
         user_proxy.initiate_chat(manager, message=initial_message)
         chat_history = user_proxy.chat_messages[manager]
@@ -184,7 +155,7 @@ def generate():
         print(f"An error occurred: {e}")
         return jsonify({"error": str(e)}), 500
 
-# --- 5. GEMINI API ROUTES ---
+# --- 5. GEMINI API ROUTES (Unchanged) ---
 def call_gemini_api(prompt):
     gemini_api_key = os.getenv("GOOGLE_API_KEY", "") 
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={gemini_api_key}"

@@ -1,4 +1,6 @@
-pyautogen[openai]
+playwright # playwright install
+pyautogen[gemini,openai]
+chromadb
 flask
 python-dotenv
-google-generativeai
+google-generativeai 
