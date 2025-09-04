@@ -1,6 +1,35 @@
+# --- Python ---
 venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
+.eggs/
+
+# --- Environment ---
 .env
+*.env
+
+# --- Databases ---
+*.db
+*.sqlite3
+*.sqlite
+*.bin
+
+# --- Cache / Temporary ---
+.cache/
+*.log
+*.tmp
+*.swp
+
+# --- Frontend Builds ---
+node_modules/
+dist/
+build/
+
+# --- OS / Editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
