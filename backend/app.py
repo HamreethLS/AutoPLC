@@ -1,179 +1,162 @@
 import os
+import re
+import uuid
+import threading
+import time
 import autogen
-from flask import Flask, request, jsonify, render_template
+
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
 from dotenv import load_dotenv
 
-# Import agent and tool creation functions 
 from backend.agents.planner_agent import create_planner_agent
 from backend.agents.coder_agent import create_coder_agent
 from backend.agents.validator_agent import create_validator_agent
+from backend.agents.knowledge_agent import create_knowledge_agent
 from backend.tools.compiler import run_iec2c_compiler
+from backend.tools.knowledge_base import query_knowledge_base, initialize_knowledge_base
+from backend.tools.linter import run_linter
 
-# --- 1. INITIALIZATION ---
 load_dotenv()
+app = Flask(__name__)
+CORS(app)
+tasks = {}
+active_threads = {}
 
-# --- ROBUST FLASK APP INITIALIZATION ---
-basedir = os.path.abspath(os.path.dirname(__file__))
-app = Flask(__name__, template_folder=os.path.join(basedir, 'templates'))
+def extract_code_block(text: str) -> str:
+    text = text.replace('\r\n', '\n').strip()
+    pattern = r"``````"
+    matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+    if matches:
+        return max(matches, key=len).strip()
+    prog = re.search(r"PROGRAM.*?END_PROGRAM", text, re.DOTALL | re.IGNORECASE)
+    if prog:
+        return prog.group(0).strip()
+    return text
 
+def is_placeholder(content):
+    if not content: return True
+    content = content.lower().strip()
+    phrases = [
+        "wait for my next message",
+        "please wait for my next message", 
+        "i will outline the plan",
+        "you will receive a plan in the next message",
+        "proceeding to planning phase",
+        "i will create", "i'll provide more"
+    ]
+    return any(p in content for p in phrases)
 
-# --- 2. CONFIGURE NVIDIA NIM ---
-api_key = os.getenv("NVIDIA_API_KEY")
-if not api_key:
-    raise ValueError("NVIDIA_API_KEY not found in .env file or environment variables.")
+def run_workflow(task_id, prompt):
+    tasks[task_id]["status"] = "running"
+    try:
+        llm_config = {
+            "config_list": [{
+                "model": "nvidia/llama-3.1-nemotron-70b-instruct",
+                "api_key": os.getenv("NVIDIA_API_KEY_1"),
+                "base_url": "https://integrate.api.nvidia.com/v1",
+                "api_type": "openai",
+                "temperature": 0.1,
+                "max_tokens": 2048
+            }],
+            "cache_seed": 42
+        }
+        # ----- AGENT SETUP -----
+        planner = create_planner_agent(llm_config)
+        coder = create_coder_agent(llm_config)
+        validator = create_validator_agent({
+            **llm_config,
+            "tools": [
+                {"type": "function", "function": {"name": "run_iec2c_compiler"}},
+                {"type": "function", "function": {"name": "run_linter"}}
+            ]
+        })
+        knowledge_agent = create_knowledge_agent(llm_config)
 
-# --- UNIFIED & CORRECTED MODEL CONFIGURATION ---
-# We will use the same powerful, tool-capable model for all agents to ensure compatibility.
-llm_config = {
-    "model": "meta/llama-3.1-70b-instruct",
-    "api_key": api_key,
-    "base_url": "https://integrate.api.nvidia.com/v1"
-}
+        # ---- 1. Planner: create implementation plan ----
+        plan_prompt = f"Provide a detailed, complete implementation plan for this PLC system: {prompt}\nDo not say you will explain later. Output the plan now."
+        planner_out = planner.generate_reply(
+            messages=[{"role": "user", "content": plan_prompt}]
+        )
+        if is_placeholder(planner_out):
+            planner_out = planner.generate_reply(
+                messages=[{"role": "user", "content": plan_prompt + "\nNever say you'll provide more later."}]
+            )
 
+        # ---- 2. Coder: generate code for the plan ----
+        coder_prompt = f"Generate full, working IEC 61131-3 Structured Text code for the following plan.\nPlan:\n{planner_out}\nOutput code in a single markdown code block."
+        coder_out = coder.generate_reply(
+            messages=[{"role": "user", "content": coder_prompt}]
+        )
+        code = extract_code_block(coder_out)
+        if not code or not ("PROGRAM" in code and "END_PROGRAM" in code):
+            code = "(* No valid code block extracted; agent response: *)\n" + coder_out
 
-# --- 3. SETUP AUTOGEN WORKFLOW ---
-planner = create_planner_agent(llm_config)
-coder = create_coder_agent(llm_config)
+        # ---- 3. Validator: run compiler & linter ----
+        compiler_result = run_iec2c_compiler(code)
+        linter_result = run_linter(code)
+        qscore = float("1.0" if "Compilation Successful" in compiler_result else "0.0") + \
+            (1.0 if "Linter Check Passed" in linter_result else 0.5)
 
-# The validator is an AssistantAgent that DECIDES to use the tool.
-# We update its llm_config to make it aware of the tool's schema.
-llm_config_validator = llm_config.copy()
-llm_config_validator["tools"] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "run_iec2c_compiler",
-            "description": "Compiles Structured Text code to check for syntax errors.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "The Structured Text code to compile.",
-                    }
-                },
-                "required": ["code"],
-            },
-        },
-    }
-]
-validator = create_validator_agent(llm_config_validator)
+        # ---- 4. Record history and result ----
+        tasks[task_id]["status"] = "completed"
+        tasks[task_id]["result"] = {
+            "success": "Compilation Successful" in compiler_result,
+            "generated_code": code,
+            "quality_score": qscore,
+            "compiler_result": compiler_result,
+            "linter_result": linter_result,
+            "generation_count": 1,
+            "history": [
+                {"role": "Planner", "content": planner_out},
+                {"role": "Coder", "content": code},
+                {"role": "Validator", "content": f"Compiler: {compiler_result}\nLinter: {linter_result}"}
+            ]
+        }
+    except Exception as e:
+        tasks[task_id]["status"] = "failed"
+        tasks[task_id]["error"] = str(e)
 
-# The user_proxy is a UserProxyAgent that EXECUTES the tool call.
-user_proxy = autogen.UserProxyAgent(
-    name="UserProxy",
-    human_input_mode="NEVER",
-    max_consecutive_auto_reply=10,
-    is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE"),
-    code_execution_config={"use_docker": False},
-    # Register the function for execution
-    function_map={"run_iec2c_compiler": run_iec2c_compiler}
-)
+@app.route('/api/generate', methods=['POST'])
+def generate_code():
+    data = request.get_json()
+    prompt = data.get('prompt', '').strip()
+    if not prompt:
+        return jsonify({"error": "Prompt is required"}), 400
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {"status": "pending", "result": None}
+    thread = threading.Thread(target=run_workflow, args=(task_id, prompt))
+    thread.daemon = True
+    thread.start()
+    active_threads[task_id] = thread
+    return jsonify({"task_id": task_id, "status": "running"})
 
-groupchat = autogen.GroupChat(
-    agents=[user_proxy, planner, coder, validator],
-    messages=[],
-    max_round=12,
-)
+@app.route('/api/status/<task_id>')
+def get_task_status(task_id):
+    t = tasks.get(task_id)
+    if not t:
+        return jsonify({"error": "Task not found"}), 404
+    if "error" in t:
+        return jsonify({"status": t["status"], "error": t["error"]})
+    if t["status"] == "completed":
+        return jsonify({**t, "result": t["result"]})
+    return jsonify({"status": t["status"]})
 
-manager = autogen.GroupChatManager(
-    groupchat=groupchat, 
-    llm_config=llm_config
-)
+@app.route('/<filename>')
+def frontend_files(filename):
+    if filename.endswith(('.js', '.css', '.html', '.ico', '.png', '.jpg', '.svg')):
+        frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
+        return send_from_directory(frontend_dir, filename)
+    return jsonify({"error": "Not found"}), 404
 
-# --- 4. FLASK ROUTES ---
 @app.route('/')
 def index():
-    """Serves the main HTML page."""
-    return render_template('index.html')
+    frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
+    return send_from_directory(frontend_dir, 'index.html')
 
-@app.route('/generate', methods=['POST'])
-def generate():
-    """Handles the code generation request from the frontend."""
-    try:
-        data = request.get_json()
-        prompt = data.get('prompt')
-        if not prompt:
-            return jsonify({"error": "Prompt is missing"}), 400
-
-        # Reset agents to clear previous conversations
-        user_proxy.reset()
-        manager.reset()
-
-        initial_message = f"""The user wants to generate Structured Text code for the following task: '{prompt}'.
-        First, the Planner will create a plan.
-        Next, the Coder will write the code based on the plan.
-        Finally, the Validator will use the 'run_iec2c_compiler' tool to check the code."""
-
-        # The UserProxy now initiates the chat
-        user_proxy.initiate_chat(manager, message=initial_message)
-
-        chat_history = user_proxy.chat_messages[manager]
-        
-        # --- NEW LOGIC: Find the BEST successfully compiled code ---
-        best_code = "No code was generated."
-        final_validation_message = "No validation was performed."
-        success = False
-
-        # Find the first piece of code that was successfully compiled
-        for i, msg in enumerate(chat_history):
-            # Check if the current message is from the Coder
-            if msg.get('name') == 'Coder' and msg.get('content'):
-                # Look ahead in the history for the corresponding tool result
-                for next_msg in chat_history[i+1:]:
-                    if next_msg.get('role') == 'tool':
-                        validation_result = next_msg.get('content', '')
-                        if "Compilation Successful." in validation_result:
-                            best_code = msg['content'].strip()
-                            final_validation_message = validation_result
-                            success = True
-                            # Break out of both loops once we find the first success
-                            break
-                        # If we find a tool result (even a failure), stop looking for this Coder message
-                        break 
-            if success:
-                break
-        
-        # If no code compiled successfully, fall back to the last attempt
-        if not success:
-            for msg in reversed(chat_history):
-                if msg.get('name') == 'Coder' and msg.get('content'):
-                    best_code = msg['content'].strip()
-                    break
-            for msg in reversed(chat_history):
-                if msg.get('role') == 'tool':
-                    final_validation_message = msg['content'].strip()
-                    break
-
-        # --- End of new logic ---
-
-        formatted_history = []
-        for msg in chat_history:
-            role = msg.get('name', msg.get('role'))
-            content = msg.get('content')
-            
-            if role == 'tool':
-                role = "UserProxy (Tool Result)"
-            
-            if not role or not content:
-                continue
-
-            if "tool_calls" in msg:
-                continue
-
-            formatted_history.append({"role": role, "content": content})
-
-        return jsonify({
-            "success": success,
-            "generated_code": best_code,
-            "final_validation_message": final_validation_message,
-            "history": formatted_history
-        })
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return jsonify({"error": str(e)}), 500
-
-# --- 5. RUN THE APPLICATION ---
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    try:
+        initialize_knowledge_base()
+    except Exception as e:
+        print(f"Knowledge base load failed: {e}")
+    app.run(port=5001, debug=True)

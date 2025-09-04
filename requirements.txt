@@ -1,3 +1,53 @@
-pyautogen[openai]
-flask
-python-dotenv
+# Core Flask and Web Framework
+Flask==2.3.3
+Flask-CORS==4.0.0
+
+#Agentic AI
+pyautogen[openai,gemini]
+
+# NVIDIA NIM and AI Libraries  
+requests==2.31.0
+openai==1.35.0
+python-dotenv==1.0.0
+
+# Knowledge Base and RAG
+chromadb==0.4.24
+sentence-transformers==2.2.2
+langchain==0.1.20
+langchain-text-splitters==0.0.2
+
+# PDF Processing
+PyMuPDF==1.23.26
+
+# Web Scraping and Search
+playwright==1.40.0
+beautifulsoup4==4.12.2
+
+# Data Processing and Analysis
+pandas==2.1.4
+numpy==1.24.3
+
+# Threading and Async
+asyncio==3.4.3
+
+# Development and Debugging
+flask-debugtoolbar==0.13.1
+
+# Production Server (Optional)
+gunicorn==21.2.0
+waitress==2.1.2
+
+# Optional: Additional AI Libraries
+# transformers==4.36.0
+# torch==2.1.0
+
+# Optional: Database (if needed for persistent storage)
+# sqlalchemy==2.0.23
+# flask-sqlalchemy==3.1.1
+
+# Testing (Optional)
+# pytest==7.4.3  
+# pytest-flask==1.3.0
+
+# Documentation (Optional)
+# sphinx==7.2.6
