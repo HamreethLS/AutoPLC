@@ -1,3 +1,55 @@
-pyautogen[openai]
-flask
-python-dotenv
+# Core Framework
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Agent Orchestration
+langchain==0.1.0
+langchain-community==0.0.10
+langchain-openai==0.0.2
+langgraph==0.0.20
+langsmith==0.0.69
+
+# LLM Integration
+openai==1.6.1
+anthropic==0.7.8
+transformers==4.36.2
+torch==2.1.2
+
+# Database and Storage
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.13.1
+redis==5.0.1
+
+# RAG and Vector Storage
+chromadb==0.4.18
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+
+# PLC and Industrial Protocols
+pymodbus==3.5.4
+opcua==0.98.13
+
+# Parsing and Code Generation
+lark==1.1.8
+jinja2==3.1.2
+antlr4-python3-runtime==4.13.1
+
+# Monitoring and Telemetry
+prometheus-client==0.19.0
+paho-mqtt==1.6.1
+kafka-python==2.0.2
+
+# Testing and Validation
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+
+# Utilities
+python-dotenv==1.0.0
+pyyaml==6.0.1
+requests==2.31.0
+websockets==12.0
+aiofiles==23.2.1

@@ -1,0 +1,164 @@
+name: Release Pipeline
+
+on:
+  release:
+    types: [published]
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install backend dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install build wheel
+
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Build frontend
+      working-directory: ./frontend
+      run: npm run build
+
+    - name: Build Python package
+      run: |
+        python -m build
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Extract version from tag
+      id: version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Build and push release images
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/plc-backend:${{ steps.version.outputs.VERSION }}
+          ${{ secrets.DOCKERHUB_USERNAME }}/plc-backend:latest
+        platforms: linux/amd64,linux/arm64
+
+    - name: Build and push frontend release image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/plc-frontend:${{ steps.version.outputs.VERSION }}
+          ${{ secrets.DOCKERHUB_USERNAME }}/plc-frontend:latest
+        platforms: linux/amd64,linux/arm64
+
+    - name: Create release artifacts
+      run: |
+        mkdir -p release-artifacts
+        cp dist/* release-artifacts/
+        cp -r frontend/build release-artifacts/frontend-build
+        tar -czf release-artifacts/plc-system-${{ steps.version.outputs.VERSION }}.tar.gz \
+          -C . \
+          --exclude='.git' \
+          --exclude='node_modules' \
+          --exclude='__pycache__' \
+          --exclude='.pytest_cache' \
+          .
+
+    - name: Upload release artifacts
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./release-artifacts/plc-system-${{ steps.version.outputs.VERSION }}.tar.gz
+        asset_name: plc-system-${{ steps.version.outputs.VERSION }}.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Generate release notes
+      run: |
+        echo "## Release ${{ steps.version.outputs.VERSION }}" > release-notes.md
+        echo "" >> release-notes.md
+        echo "### Features" >> release-notes.md
+        echo "- Multi-agent AI-powered PLC code generation" >> release-notes.md
+        echo "- React frontend with Monaco Editor" >> release-notes.md
+        echo "- Self-healing orchestrator with deployment policies" >> release-notes.md
+        echo "- Real-time monitoring and telemetry" >> release-notes.md
+        echo "" >> release-notes.md
+        echo "### Docker Images" >> release-notes.md
+        echo "- Backend: \`${{ secrets.DOCKERHUB_USERNAME }}/plc-backend:${{ steps.version.outputs.VERSION }}\`" >> release-notes.md
+        echo "- Frontend: \`${{ secrets.DOCKERHUB_USERNAME }}/plc-frontend:${{ steps.version.outputs.VERSION }}\`" >> release-notes.md
+
+    - name: Update release description
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const releaseNotes = fs.readFileSync('release-notes.md', 'utf8');
+          
+          await github.rest.repos.updateRelease({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            release_id: context.payload.release.id,
+            body: releaseNotes
+          });
+
+  deploy-production-release:
+    runs-on: ubuntu-latest
+    needs: build-release
+    environment: production
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Deploy release to production
+      run: |
+        echo "Deploying release ${{ github.event.release.tag_name }} to production..."
+        # Add production deployment commands here
+
+    - name: Verify deployment
+      run: |
+        echo "Verifying production deployment..."
+        # Add deployment verification commands here
+
+    - name: Notify release deployment
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#releases'
+        text: |
+          🚀 Release ${{ github.event.release.tag_name }} deployed to production!
+          Docker Images:
+          - Backend: ${{ secrets.DOCKERHUB_USERNAME }}/plc-backend:${{ github.event.release.tag_name }}
+          - Frontend: ${{ secrets.DOCKERHUB_USERNAME }}/plc-frontend:${{ github.event.release.tag_name }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      if: always()
