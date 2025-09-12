@@ -6,6 +6,7 @@ import os
 import requests
 import json
 import time
+import re
 
 from backend.utils.nim_client import enhanced_nim_client
 from typing import Dict

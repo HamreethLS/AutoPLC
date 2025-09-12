@@ -381,9 +381,8 @@ class DynamicSupervisor:
         # Return the best code found during the workflow
         final_code = context.get("best_code")
         if not final_code:
-            # Fallback to the last generated code if no validation was ever successful enough to set a best_code
-            final_code = self._extract_valid_code(context.get("generated_code", ""))
-
+            # If no best_code was ever set, it means no version was good. Return the last attempt.
+            final_code = context.get("generated_code", "")
         return {
             "success": success,
             "code": final_code,

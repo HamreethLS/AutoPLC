@@ -55,6 +55,7 @@ class DashboardGenerationRequest(BaseModel):
 
 class TaskResponse(BaseModel):
     task_id: str
+    prompt: Optional[str] = None
     status: str
     progress: float = 0.0
     current_agent: Optional[str] = None
@@ -172,6 +173,7 @@ async def get_task_status(task_id: str, db: AsyncSession = Depends(get_async_db)
     
     return TaskResponse(
         task_id=str(task.id),
+        prompt=task.prompt,
         status=task.status.value,
         progress=task.progress,
         current_agent=task.current_agent,

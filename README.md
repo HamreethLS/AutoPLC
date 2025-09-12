@@ -6,23 +6,23 @@ AutoPLC is a cutting-edge hackathon project that uses multiple specialized AI ag
 ✨ Features
 🤖 Multi-Agent Architecture
 
-    Planner Agent: Creates detailed implementation plans (Llama 3.1-70B)
+    Planner Agent: Creates detailed implementation plans (openai/gpt-oss-120b)
 
-    Coder Agent: Generates syntactically correct ST code (Llama 3.1-70B)
+    Coder Agent: Generates highly specialized ST code (qwen/qwen3-coder-480b-a35b-instruct)
 
-    Validator Agent: Compiles and lints code (Mistral-7B)
+    Validator Agent: Compiles and validates code with high accuracy (nvidia/llama-3.1-nemotron-ultra-253b-v1)
 
-    Knowledge Agent: Provides IEC standards expertise (Phi-4-Mini)
+    Knowledge Agent: Synthesizes expert IEC knowledge (nvidia/llama-3.1-nemotron-ultra-253b-v1)
 
-    Retrieval Agent: Searches technical documentation (Mistral-7B)
+    Retrieval Agent: Searches and synthesizes external documentation (nvidia/llama-3.1-nemotron-ultra-253b-v1)
 
     Simulator Agent: Integrates with OpenPLC/ScadaBR
 
 🎯 Smart Model Routing
 
-    High-Performance Models (Llama 3.1-70B) for complex reasoning and code generation
+    High-Performance Models (Qwen, Nemotron Ultra) for complex reasoning and code generation
 
-    Efficient Models (Mistral-7B, Phi-4-Mini) for tool calling and quick responses
+    Efficient Models (Nemotron Nano) for tool calling and quick fallback responses
 
     Automatic Fallback between primary and secondary API keys
 

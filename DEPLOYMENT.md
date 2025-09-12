@@ -60,8 +60,8 @@ MATIEC_PATH=C:\path\to\your\matiec\installation
 python -m backend.ingest
 
 # You should see:
-# --- Starting Knowledge Base Ingestion Process ---
-# --- Ingestion Process Complete ---
+# 🧠 Initializing Knowledge Base...
+# ✅ Knowledge Base Initialization Complete!
 ```
 
 ### Step 5: Start the Application
@@ -85,22 +85,23 @@ python -m backend.app
 3. Try an example prompt like: *"Control a conveyor belt system with start/stop buttons"*
 4. Watch the agents collaborate in real-time!
 
----
 
 ## 🔧 Advanced Configuration
 
-### Model Assignment Customization
+### Model Configuration
 
-Add to your `.env` file to override default models:
+The AI models for each agent are configured within the application. The system uses a combination of high-performance models for specialized tasks.
 
-```bash
-# Advanced model configuration
-NIM_MODEL_PLANNER=meta/llama-3.1-70b-instruct
-NIM_MODEL_CODER=meta/llama-3.1-70b-instruct  
-NIM_MODEL_VALIDATOR=mistralai/mistral-7b-instruct-v0.3
-NIM_MODEL_KNOWLEDGE=microsoft/phi-4-mini-instruct
-NIM_MODEL_RETRIEVER=mistralai/mistral-7b-instruct-v0.3
-```
+**Default Model Assignments:**
+
+*   **Planner Agent:** `openai/gpt-oss-120b`
+*   **Coder Agent:** `qwen/qwen3-coder-480b-a35b-instruct`
+*   **Validator Agent:** `nvidia/llama-3.1-nemotron-ultra-253b-v1`
+*   **Knowledge Agent:** `nvidia/llama-3.1-nemotron-ultra-253b-v1`
+*   **Retrieval Agent:** `nvidia/llama-3.1-nemotron-ultra-253b-v1`
+*   **Fallback Model:** `nvidia/llama-3.1-nemotron-nano-8b-v1`
+
+To change these models, you can edit the `model_configs` dictionary in the `backend/utils/nim_client.py` file.
 
 ### OpenPLC Simulation Setup (Optional)
 
@@ -162,15 +163,12 @@ NVIDIA NIM free tier includes:
 
 ### Development Mode
 
-For development with auto-reload:
+The application is configured to run in development mode by default when using `python -m backend.app`. The server will automatically reload when code changes are detected in the `backend` directory.
+
+You can also run it directly with uvicorn for more control:
 
 ```bash
-# Set Flask environment
-export FLASK_ENV=development
-export FLASK_DEBUG=True
-
-# Run with auto-reload
-python backend/app.py
+uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ---
