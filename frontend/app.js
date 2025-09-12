@@ -1,510 +1,912 @@
-// frontend/app.js - Complete JavaScript functionality
-
 class AutoPLCApp {
-    constructor() {
-        this.currentTaskId = null;
-        this.statusInterval = null;
-        this.init();
-    }
-
     init() {
-        this.bindEvents();
-        this.updateCharCount();
-        this.loadTaskHistory();
-        this.checkSystemStatus();
+        this.clientId = `client_${Math.random().toString(36).substr(2, 9)}`;
+        this.websocket = null;
+        this.currentTaskId = null;
+        this.taskResult = null;
+        this.simulationInterval = null;
+
+        this.setupRouting();
+        this.setupEventListeners();
+        this.connectWebSocket();
+        this.navigateTo('projects'); // Initial view
     }
 
-    bindEvents() {
-        // Input events
-        const promptInput = document.getElementById('promptInput');
-        const generateBtn = document.getElementById('generateBtn');
-        
-        promptInput.addEventListener('input', () => {
-            this.updateCharCount();
-            this.updateGenerateButton();
-        });
-        
-        promptInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    setupRouting() {
+        this.views = {
+            projects: document.getElementById('projects-view'),
+            'project-detail': document.getElementById('project-detail-view'),
+        };
+        this.navLinks = document.querySelectorAll('.nav-link');
+
+        this.navLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
                 e.preventDefault();
-                this.generateCode();
-            }
-        });
-
-        // Button events
-        generateBtn.addEventListener('click', () => this.generateCode());
-        document.getElementById('copyCodeBtn').addEventListener('click', () => this.copyCode());
-        document.getElementById('simulateBtn').addEventListener('click', () => this.showSimulationModal());
-        document.getElementById('downloadBtn').addEventListener('click', () => this.downloadCode());
-        document.getElementById('newChatBtn').addEventListener('click', () => this.newChat());
-        document.getElementById('systemInfoBtn').addEventListener('click', () => this.showSystemInfo());
-
-        // Modal events
-        document.getElementById('closeModalBtn').addEventListener('click', () => this.closeModal('systemInfoModal'));
-        document.getElementById('closeSimModalBtn').addEventListener('click', () => this.closeModal('simulationModal'));
-        
-        // Simulation controls
-        document.getElementById('startSimBtn').addEventListener('click', () => this.startSimulation());
-        document.getElementById('stopSimBtn').addEventListener('click', () => this.stopSimulation());
-        document.getElementById('refreshSimBtn').addEventListener('click', () => this.refreshSimulationStatus());
-
-        // Close modals on background click
-        document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal')) {
-                this.closeModal(e.target.id);
-            }
+                const viewName = e.target.getAttribute('data-view');
+                this.navigateTo(viewName);
+            });
         });
     }
 
-    updateCharCount() {
-        const promptInput = document.getElementById('promptInput');
-        const charCount = document.getElementById('charCount');
-        const count = promptInput.value.length;
-        charCount.textContent = `${count}/1000`;
-        
-        if (count > 900) {
-            charCount.style.color = 'var(--danger-color)';
-        } else if (count > 750) {
-            charCount.style.color = 'var(--warning-color)';
-        } else {
-            charCount.style.color = 'var(--text-secondary)';
+    navigateTo(viewName, data = {}) {
+        // Update nav links
+        this.navLinks.forEach(link => {
+            link.classList.toggle('active', link.getAttribute('data-view') === viewName);
+        });
+
+        // Update views
+        Object.values(this.views).forEach(view => {
+            view.classList.remove('active');
+        });
+        this.views[viewName].classList.add('active');
+
+        // Load data for the view
+        switch (viewName) {
+            case 'projects':
+                this.loadProjectsData();
+                break;
+            case 'project-detail': this.loadProjectDetailView(data.taskId); break;
         }
     }
 
-    updateGenerateButton() {
-        const promptInput = document.getElementById('promptInput');
-        const generateBtn = document.getElementById('generateBtn');
-        const isValid = promptInput.value.trim().length > 0;
-        generateBtn.disabled = !isValid;
+    setupEventListeners() {
+        // Modal Handlers
+        this.createProjectModal = document.getElementById('create-project-modal');
+        document.getElementById('create-project-btn').addEventListener('click', () => this.createProjectModal.classList.add('active'));
+        this.createProjectModal.querySelector('.modal-close-btn').addEventListener('click', () => this.createProjectModal.classList.remove('active'));
+        document.getElementById('cancel-create-btn').addEventListener('click', () => this.createProjectModal.classList.remove('active'));
+
+        // Form Submission
+        const createForm = document.getElementById('create-project-form');
+        createForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleCreateProject();
+        });
+        // Also handle direct click on the submit button as a fallback
+        this.createProjectModal.querySelector('button[type="submit"]').addEventListener('click', () => this.handleCreateProject());
+        
+        document.getElementById('back-to-projects-btn').addEventListener('click', () => {
+            this.navigateTo('projects');
+        });
+
+        // Event delegation for "View" buttons on projects table
+        document.getElementById('projects-view').addEventListener('click', (e) => {
+            const viewBtn = e.target.closest('.view-project-btn');
+            const deleteBtn = e.target.closest('.delete-project-btn');
+
+            if (viewBtn) {
+                const taskId = viewBtn.dataset.taskId;
+                this.navigateTo('project-detail', { taskId });
+            } else if (deleteBtn) {
+                const taskId = deleteBtn.dataset.taskId;
+                this.handleDeleteProject(taskId);
+            }
+        });
+
+        // New UI event listeners
+        this.fullLogModal = document.getElementById('full-log-modal');
+        document.getElementById('view-log-btn').addEventListener('click', () => this.fullLogModal.classList.add('active'));
+        this.fullLogModal.querySelector('.modal-close-btn').addEventListener('click', () => this.fullLogModal.classList.remove('active'));
+
+        // Add simulation modal handlers, but keep them safe in case buttons are missing
+        this.simulationModal = document.getElementById('custom-simulation-modal');
+        const simBtn = document.getElementById('simulate-btn');
+        if (simBtn) simBtn.addEventListener('click', () => this.handleSimulateLogic());
+        if (this.simulationModal) this.simulationModal.querySelector('.modal-close-btn').addEventListener('click', () => this.closeSimulationModal());
+        document.getElementById('reset-simulation-btn')?.addEventListener('click', () => this.resetSimulation());
+        
+        document.getElementById('compile-btn')?.addEventListener('click', () => this.handleCompileCode());
+
+        document.getElementById('copy-code-btn')?.addEventListener('click', () => this.handleCopyCode());
+        document.getElementById('download-code-btn')?.addEventListener('click', () => this.handleDownloadCode());
+
+        document.getElementById('feedback-form').addEventListener('submit', (e) => this.handleFeedbackSubmit(e));
+
     }
 
-    async generateCode() {
-        const promptInput = document.getElementById('promptInput');
-        const generateBtn = document.getElementById('generateBtn');
-        const prompt = promptInput.value.trim();
+    // --- Data Loading & Rendering ---
 
+    async loadProjectsData() {
+        const container = document.getElementById('projects-table-container');
+        container.innerHTML = '<p>Loading projects...</p>';
+
+        try {
+            const tasks = await apiService.getAllTasks();
+            container.innerHTML = this.createProjectsTable(tasks);
+        } catch (error) {
+            container.innerHTML = '<p class="error">Failed to load projects.</p>';
+            console.error(error);
+        }
+    }
+
+    createProjectsTable(tasks) {
+        if (!tasks || tasks.length === 0) {
+            return '<p>No projects found. Create one to get started!</p>';
+        }
+
+        const rows = tasks.map(task => `
+            <tr>
+                <td>${task.prompt}</td>
+                <td><span class="chip chip-${task.status.toLowerCase()}">${task.status}</span></td>
+                <td>${task.quality_score ? task.quality_score.toFixed(1) : 'N/A'}</td>
+                <td>${new Date(task.created_at).toLocaleString()}</td>
+                <td>
+                    <div class="table-actions">
+                        <button class="btn view-project-btn" data-task-id="${task.id}">View</button>
+                        <button class="btn-icon delete-project-btn" title="Delete Project" data-task-id="${task.id}">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;">
+                                <path d="M6 2H10M2 4H14M12.6667 4L12.1991 11.0129C12.129 12.065 12.0939 12.5911 11.8667 13.01C11.6666 13.3866 11.3648 13.6884 10.9882 13.8884C10.57 14.1156 10.0439 14.1507 9.00004 14.2208L7.00004 14.3641C5.95618 14.4342 5.43425 14.4693 5.01604 14.2421C4.63943 14.0421 4.33764 13.7403 4.1376 13.3637C3.91042 12.9455 3.87535 12.4236 3.80521 11.3797L3.33337 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+
+        return `
+            <table class="styled-table">
+                <thead><tr><th>Prompt</th><th>Status</th><th>Score</th><th>Created</th><th>Actions</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        `;
+    }
+
+    async loadProjectDetailView(taskId) {
+        this.currentTaskId = taskId;
+        this.taskResult = null;
+
+        // Get new UI elements
+        const chatHistory = document.getElementById('chat-history');
+        const fullLogStream = document.getElementById('full-log-stream');
+        const codeOutput = document.getElementById('code-output');
+        const validationOutput = document.getElementById('validation-output');
+        const projectTitle = document.getElementById('project-detail-title');
+
+        // Reset UI
+        this.resetAgentStatusUI();
+        chatHistory.innerHTML = '<p>Loading project history...</p>';
+        fullLogStream.innerHTML = '';
+        codeOutput.innerHTML = '<pre><code>(* Waiting for agents... *)</code></pre>';
+        validationOutput.innerHTML = '<p>Waiting for validation...</p>';
+        projectTitle.textContent = `Project: ${taskId}`;
+        this.setFeedbackFormState(false);
+        document.getElementById('copy-code-btn').disabled = true;
+        document.getElementById('download-code-btn').disabled = true;
+        document.getElementById('compile-btn').disabled = true;
+        document.getElementById('simulate-btn').disabled = true;
+
+        // Subscribe to WebSocket updates for this task
+        if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+            this.websocket.send(JSON.stringify({ type: 'subscribe', task_id: taskId }));
+        }
+
+        try {
+            const [messages, taskDetails] = await Promise.all([
+                apiService.getTaskMessages(taskId),
+                apiService.getTaskDetails(taskId)
+            ]);
+
+            projectTitle.textContent = taskDetails.prompt ? `Project: ${taskDetails.prompt.substring(0, 50)}...` : `Project: ${taskId}`;
+            chatHistory.innerHTML = '';
+            fullLogStream.innerHTML = '';
+            messages.forEach(msg => this.renderAgentMessage(msg, true)); // Render to both logs
+
+            if (taskDetails.status === 'completed' || taskDetails.status === 'failed') {
+                this.taskResult = { success: taskDetails.status === 'completed', code: taskDetails.generated_code, validation_result: taskDetails.error_message || "Validation report not available." };
+                this.renderCompletedResult(this.taskResult);
+            }
+
+        } catch (error) {
+            chatHistory.innerHTML = '<p class="error">Could not load project history.</p>';
+            console.error(error);
+        }
+    }
+    
+    async handleCreateProject() {
+        const prompt = document.getElementById('project-prompt').value;
         if (!prompt) {
-            this.showNotification('Please enter a description for your PLC system', 'error');
+            alert('Project prompt cannot be empty.');
             return;
         }
 
-        // Update UI for loading state
-        generateBtn.querySelector('.btn-text').style.display = 'none';
-        generateBtn.querySelector('.btn-loading').style.display = 'flex';
-        generateBtn.disabled = true;
+        try {
+            const result = await apiService.createTask({ prompt });
+            this.createProjectModal.classList.remove('active');
+            // Navigate directly to the new project's detail view
+            this.navigateTo('project-detail', { taskId: result.task_id });
+        } catch (error) {
+            alert('Failed to create project.');
+            console.error(error);
+        }
+    }
 
-        this.updateStatus('🔄 Generating', 'Starting multi-agent code generation...');
+    async handleFeedbackSubmit(e) {
+        e.preventDefault();
+        const feedbackPrompt = document.getElementById('feedback-prompt');
+        const feedback = feedbackPrompt.value.trim();
+        if (!feedback) {
+            alert('Feedback cannot be empty.');
+            return;
+        }
+
+        this.setFeedbackFormState(false, 'Sending...');
+        this.renderAgentMessage({ agent_role: 'User', content: feedback, timestamp: new Date().toISOString() }, true);
 
         try {
-            const response = await fetch('/api/generate', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ prompt })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const data = await response.json();
-            this.currentTaskId = data.task_id;
-
-            // Add user message to chat
-            this.addMessageToChat('user', 'You', prompt);
-            
-            // Start polling for status
-            this.startStatusPolling();
-
+            await apiService.submitFeedback({ task_id: this.currentTaskId, feedback });
+            feedbackPrompt.value = '';
+            // The backend will now start a refinement process and send updates via WebSocket
         } catch (error) {
-            console.error('Generation error:', error);
-            this.showNotification('Failed to start code generation. Please try again.', 'error');
-            this.resetGenerateButton();
+            alert(`Failed to submit feedback: ${error.message}`);
+            this.setFeedbackFormState(true); // Re-enable on failure
         }
     }
 
-    startStatusPolling() {
-        if (this.statusInterval) {
-            clearInterval(this.statusInterval);
+    async handleCopyCode() {
+        if (!this.taskResult || !this.taskResult.code) {
+            alert('No code to copy.');
+            return;
         }
-
-        this.statusInterval = setInterval(async () => {
-            if (this.currentTaskId) {
-                await this.checkTaskStatus();
-            }
-        }, 1000);
-    }
-
-    async checkTaskStatus() {
         try {
-            const response = await fetch(`/api/status/${this.currentTaskId}`);
-            const data = await response.json();
-
-            if (data.status === 'completed') {
-                this.handleTaskCompletion(data);
-            } else if (data.status === 'failed') {
-                this.handleTaskFailure(data);
-            } else {
-                // Update status
-                const agent = data.current_agent || 'Working';
-                const runtime = data.runtime_seconds || 0;
-                this.updateStatus(`🤖 ${agent}`, `Runtime: ${runtime}s | Messages: ${data.message_count || 0}`);
-            }
-        } catch (error) {
-            console.error('Status check error:', error);
+            await navigator.clipboard.writeText(this.taskResult.code);
+            alert('Code copied to clipboard!');
+        } catch (err) {
+            alert('Failed to copy code.');
+            console.error('Copy failed', err);
         }
     }
 
-    handleTaskCompletion(data) {
-        clearInterval(this.statusInterval);
-        this.resetGenerateButton();
-
-        const result = data.result;
-        
-        if (result.success) {
-            // Show generated code
-            this.displayGeneratedCode(result.generated_code, result);
-            
-            // Add agent messages to chat
-            if (result.history) {
-                result.history.forEach(msg => {
-                    this.addMessageToChat('agent', msg.role, msg.content);
-                });
-            }
-
-            this.updateStatus('✅ Complete', `Generated code successfully! Quality: ${(result.quality_score || 0).toFixed(1)}/2.0`);
-            this.showNotification('Code generated successfully!', 'success');
-        } else {
-            this.updateStatus('⚠️ Issues', 'Code generated but may have issues');
-            this.displayGeneratedCode(result.generated_code, result);
-            this.showNotification('Code generated with warnings. Check the output.', 'warning');
+    async handleDownloadCode() {
+        if (!this.taskResult || !this.taskResult.code) {
+            alert('No code to download.');
+            return;
         }
-
-        // Update task history
-        this.loadTaskHistory();
-    }
-
-    handleTaskFailure(data) {
-        clearInterval(this.statusInterval);
-        this.resetGenerateButton();
-        
-        this.updateStatus('❌ Failed', 'Code generation failed');
-        this.showNotification(`Generation failed: ${data.error || 'Unknown error'}`, 'error');
-    }
-
-    displayGeneratedCode(code, result) {
-        const codeElement = document.getElementById('generatedCode');
-        const codeStats = document.getElementById('codeStats');
-        
-        codeElement.textContent = code;
-        
-        // Update stats
-        const stats = [
-            `Quality Score: ${(result.quality_score || 0).toFixed(1)}/2.0`,
-            `Lines: ${code.split('\n').length}`,
-            `Characters: ${code.length}`,
-            `Compiler: ${result.compiler_result?.includes('Successful') ? '✅ Pass' : '❌ Fail'}`,
-            `Linter: ${result.linter_result?.includes('Passed') ? '✅ Pass' : '⚠️ Warnings'}`
-        ];
-        
-        codeStats.innerHTML = stats.join(' | ');
-    }
-
-    addMessageToChat(type, role, content) {
-        const chatMessages = document.getElementById('chatMessages');
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${type}-message`;
-        
-        const timestamp = new Date().toLocaleTimeString();
-        
-        messageDiv.innerHTML = `
-            <div class="message-header">
-                <div class="agent-avatar agent-${role.toLowerCase().replace(/[^a-z]/g, '')}">${role.charAt(0)}</div>
-                <span class="agent-name">${role}</span>
-                <span class="message-timestamp">${timestamp}</span>
-            </div>
-            <div class="message-content">
-                ${this.formatMessageContent(content)}
-            </div>
-        `;
-        
-        chatMessages.appendChild(messageDiv);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-
-    formatMessageContent(content) {
-        // Basic formatting for code blocks and links
-        return content
-            .replace(/``````/g, '<pre><code>$1</code></pre>')
-            .replace(/`([^`]+)`/g, '<code>$1</code>')
-            .replace(/\n/g, '<br>');
-    }
-
-    resetGenerateButton() {
-        const generateBtn = document.getElementById('generateBtn');
-        generateBtn.querySelector('.btn-text').style.display = 'inline';
-        generateBtn.querySelector('.btn-loading').style.display = 'none';
-        generateBtn.disabled = false;
-        this.updateGenerateButton();
-    }
-
-    updateStatus(indicator, text) {
-        document.getElementById('statusIndicator').textContent = indicator;
-        document.getElementById('statusText').textContent = text;
-    }
-
-    async copyCode() {
-        const code = document.getElementById('generatedCode').textContent;
-        try {
-            await navigator.clipboard.writeText(code);
-            this.showNotification('Code copied to clipboard!', 'success');
-        } catch (error) {
-            this.showNotification('Failed to copy code', 'error');
-        }
-    }
-
-    downloadCode() {
-        const code = document.getElementById('generatedCode').textContent;
-        const blob = new Blob([code], { type: 'text/plain' });
+        const blob = new Blob([this.taskResult.code], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
-        
         const a = document.createElement('a');
         a.href = url;
-        a.download = `plc_program_${Date.now()}.st`;
+        a.download = `autoplc_project_${this.currentTaskId}.st`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
-        this.showNotification('Code downloaded!', 'success');
     }
 
-    newChat() {
-        // Clear current task
-        this.currentTaskId = null;
-        if (this.statusInterval) {
-            clearInterval(this.statusInterval);
+    async handleDeleteProject(taskId) {
+        if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
+            return;
         }
-
-        // Clear chat messages
-        const chatMessages = document.getElementById('chatMessages');
-        chatMessages.innerHTML = `
-            <div class="welcome-message">
-                <div class="welcome-content">
-                    <h2>🤖 Welcome to AutoPLC Enhanced</h2>
-                    <p>AI-powered Structured Text generation with multi-agent collaboration</p>
-                    <div class="feature-highlights">
-                        <div class="feature">
-                            <span class="feature-icon">🧠</span>
-                            <span>NVIDIA NIM Multi-Model Routing</span>
-                        </div>
-                        <div class="feature">
-                            <span class="feature-icon">⚡</span>
-                            <span>Real-time Agent Collaboration</span>
-                        </div>
-                        <div class="feature">
-                            <span class="feature-icon">✅</span>
-                            <span>Syntax Validation & Simulation</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        // Clear input and code
-        document.getElementById('promptInput').value = '';
-        document.getElementById('generatedCode').textContent = '(* Generated code will appear here *)';
-        document.getElementById('codeStats').innerHTML = '';
-        
-        // Reset status
-        this.updateStatus('🟢 Ready', 'AutoPLC Enhanced - Ready for code generation');
-        this.updateCharCount();
-        this.updateGenerateButton();
+        try {
+            await apiService.deleteTask(taskId);
+            alert('Project deleted successfully.');
+            this.loadProjectsData(); // Refresh the list
+        } catch (error) {
+            alert(`Failed to delete project: ${error.message}`);
+        }
     }
 
-    async showSystemInfo() {
-        const modal = document.getElementById('systemInfoModal');
-        const content = document.getElementById('systemInfoContent');
-        
-        content.innerHTML = 'Loading system information...';
-        modal.classList.add('active');
+    async handleCompileCode() {
+        if (!this.taskResult || !this.taskResult.code) {
+            alert('No code available to compile.');
+            return;
+        }
+        const compileBtn = document.getElementById('compile-btn');
+        compileBtn.textContent = 'Compiling...';
+        compileBtn.disabled = true;
 
         try {
-            const response = await fetch('/api/system/info');
-            const data = await response.json();
-            
-            content.innerHTML = `
-                <div class="system-info">
-                    <h4>System Status: ${data.system_status}</h4>
-                    <p><strong>Knowledge Base:</strong> ${data.knowledge_base?.document_count || 0} documents loaded</p>
-                    <p><strong>Compiler:</strong> ${data.compiler?.status || 'Unknown'}</p>
-                    <p><strong>Active Tasks:</strong> ${data.active_tasks || 0}</p>
-                    <p><strong>Total Tasks:</strong> ${data.total_tasks || 0}</p>
-                    <p><strong>Dual-Key Mode:</strong> ${data.dual_key_enabled ? 'Enabled ✅' : 'Disabled ⚠️'}</p>
-                    
-                    <h4>API Keys:</h4>
-                    <p>Primary: ${data.api_keys?.nvidia_primary || 'Not configured'}</p>
-                    <p>Secondary: ${data.api_keys?.nvidia_secondary || 'Not configured'}</p>
-                    <p>Tavily: ${data.api_keys?.tavily || 'Not configured'}</p>
-                </div>
-            `;
+            const result = await apiService.compileCode({ code: this.taskResult.code });
+            alert(result.message);
         } catch (error) {
-            content.innerHTML = `<p class="error-state">Failed to load system information: ${error.message}</p>`;
+            alert(`Compilation request failed: ${error.message}`);
+        } finally {
+            compileBtn.textContent = 'Compile';
+            compileBtn.disabled = false;
         }
     }
 
-    async showSimulationModal() {
-        const modal = document.getElementById('simulationModal');
-        modal.classList.add('active');
-        this.refreshSimulationStatus();
-    }
-
-    async startSimulation() {
-        const code = document.getElementById('generatedCode').textContent;
-        
-        if (!code || code === '(* Generated code will appear here *)') {
-            this.showNotification('No code to simulate', 'error');
+    async handleSimulateLogic() {
+        if (!this.taskResult || !this.taskResult.code) {
+            alert('No code available to simulate.');
             return;
         }
 
         try {
-            const response = await fetch('/api/simulate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code })
-            });
-
-            const data = await response.json();
-            
-            if (data.success) {
-                this.showNotification('Simulation started!', 'success');
-                this.refreshSimulationStatus();
-            } else {
-                this.showNotification(`Simulation failed: ${data.message}`, 'error');
-            }
-        } catch (error) {
-            this.showNotification('Simulation error', 'error');
-        }
-    }
-
-    async stopSimulation() {
-        try {
-            const response = await fetch('/api/simulation/stop', { method: 'POST' });
-            const data = await response.json();
-            
-            if (data.success) {
-                this.showNotification('Simulation stopped', 'success');
-                this.refreshSimulationStatus();
-            }
-        } catch (error) {
-            this.showNotification('Failed to stop simulation', 'error');
-        }
-    }
-
-    async refreshSimulationStatus() {
-        try {
-            const response = await fetch('/api/simulation/status');
-            const data = await response.json();
-            
-            const statusElement = document.getElementById('simulationStatus');
-            statusElement.innerHTML = `
-                <p><strong>Status:</strong> ${data.plc_status || 'Not connected'}</p>
-                <p><strong>Variables:</strong> ${JSON.stringify(data.variables || {})}</p>
-            `;
-        } catch (error) {
-            document.getElementById('simulationStatus').innerHTML = `<p class="error-state">Failed to get status</p>`;
-        }
-    }
-
-    async loadTaskHistory() {
-        try {
-            const response = await fetch('/api/tasks');
-            const tasks = await response.json();
-            
-            const taskHistory = document.getElementById('taskHistory');
-            
-            if (tasks.length === 0) {
-                taskHistory.innerHTML = '<p class="text-muted">No recent tasks</p>';
+            // Fetch task details to get the original prompt for context
+            const taskDetails = await apiService.getTaskDetails(this.currentTaskId);
+            if (!taskDetails || !taskDetails.prompt) {
+                alert('Could not retrieve original prompt for simulation context.');
                 return;
             }
 
-            taskHistory.innerHTML = tasks.map(task => `
-                <div class="task-item">
-                    <div class="task-prompt">${task.prompt}</div>
-                    <div class="task-meta">
-                        ${task.status} | ${task.success ? '✅' : '❌'} | ${task.quality_score || 0}/2.0
+            const dashboardData = await apiService.generateDashboard({ 
+                code: this.taskResult.code,
+                prompt: taskDetails.prompt
+            });
+
+            if (!dashboardData.success) {
+                alert(`Failed to generate simulation dashboard from code: ${dashboardData.error}`);
+                return;
+            }
+
+            const dashboardDef = dashboardData.dashboard;
+            
+            // Extract inputs and outputs for the interpreter from the LLM-generated definition
+            const inputs = dashboardDef.components
+                .filter(c => c.group === 'inputs')
+                .map(c => ({ name: c.variable }));
+            
+            const outputs = dashboardDef.components
+                .filter(c => c.group === 'outputs')
+                .map(c => ({ name: c.variable }));
+
+            this.openSimulationModal(inputs, outputs, dashboardDef);
+
+        } catch (error) {
+            alert(`Failed to start simulation: ${error.message}`);
+        }
+    }
+
+    openSimulationModal(inputs, outputs, dashboardDef) {
+        this.simulationState = {
+            variables: {},
+            timeline: [],
+            timelineCounter: 0,
+            inputs: inputs,
+            outputs: outputs
+        };
+        this.buildSimulatorUIFromDef(dashboardDef);
+        this.simulationModal.classList.add('active');
+        this.startJsSimulation(inputs, outputs);
+    }
+
+    buildSimulatorUIFromDef(dashboardDef) {
+        const inputsContainer = document.getElementById('sim-inputs-container');
+        const outputsContainer = document.getElementById('sim-outputs-container');
+        const simTitle = this.simulationModal.querySelector('h2');
+
+        if (simTitle) {
+            simTitle.textContent = dashboardDef.title || 'Logic Simulator';
+        }
+        
+        inputsContainer.innerHTML = '';
+        outputsContainer.innerHTML = '';
+
+        dashboardDef.components.forEach(component => {
+            let componentHtml = '';
+            switch(component.type) {
+                case 'momentary_button':
+                    componentHtml = `
+                        <div class="io-indicator" id="sim-indicator-${component.variable}"></div>
+                        <span>${component.label}</span>
+                        <button class="io-button" data-var-name="${component.variable}">Press</button>
+                    `;
+                    break;
+                case 'toggle_switch':
+                    componentHtml = `
+                        <div class="io-indicator" id="sim-indicator-${component.variable}"></div>
+                        <span>${component.label}</span>
+                        <button class="io-button" data-var-name="${component.variable}" data-sim-type="toggle">Toggle</button>
+                    `;
+                    break;
+                case 'indicator_light':
+                    componentHtml = `
+                        <div class="io-indicator output" id="sim-indicator-${component.variable}"></div>
+                        <span>${component.label}</span>
+                        <span class="status-text off" id="sim-status-${component.variable}">OFF</span>
+                    `;
+                    break;
+                case 'display_value':
+                     componentHtml = `
+                        <span>${component.label}</span>
+                        <span class="status-text" id="sim-status-${component.variable}">0</span>
+                    `;
+                    break;
+            }
+
+            const item = document.createElement('div');
+            item.className = 'io-item';
+            item.innerHTML = componentHtml;
+
+            if (component.group === 'inputs') {
+                inputsContainer.appendChild(item);
+            } else if (component.group === 'outputs') {
+                outputsContainer.appendChild(item);
+            }
+        });
+        
+        // Add event listeners to new buttons
+        inputsContainer.querySelectorAll('.io-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const varName = button.dataset.varName;
+                const simType = button.dataset.simType;
+                if (simType === 'toggle') {
+                    this.toggleSwitch(varName);
+                } else {
+                    this.toggleInput(varName); // This is the momentary press
+                }
+            });
+        });
+    }
+
+
+    toggleInput(varName) {
+        const variable = this.simulationState.variables[varName.toUpperCase()];
+        if (typeof variable === 'undefined' || typeof variable !== 'boolean') return;
+
+        // Simulate a momentary button press
+        this.simulationState.variables[varName.toUpperCase()] = true;
+        this.addTimelineEvent(`Input '${varName}' Pressed`, 'Input Active');
+        const indicator = document.getElementById(`sim-indicator-${varName}`);
+        if (indicator) indicator.classList.add('active');
+
+        setTimeout(() => {
+            this.simulationState.variables[varName.toUpperCase()] = false;
+            if (indicator) indicator.classList.remove('active');
+        }, 500); // Button is "pressed" for 500ms
+    }
+
+    toggleSwitch(varName) {
+        const variableKey = varName.toUpperCase();
+        const currentState = this.simulationState.variables[variableKey];
+        const newState = !currentState;
+        this.simulationState.variables[variableKey] = newState;
+        
+        this.addTimelineEvent(`Input '${varName}' Toggled`, `State is now ${newState ? 'ON' : 'OFF'}`);
+        const indicator = document.getElementById(`sim-indicator-${varName}`);
+        if (indicator) indicator.classList.toggle('active', newState);
+    }
+
+    startJsSimulation(inputs, outputs) {
+      if (this.simulationInterval) {
+          clearInterval(this.simulationInterval);
+      }
+      
+      const allVarNames = [...inputs.map(i => i.name), ...outputs.map(o => o.name)];
+      this.simulationState.variables = allVarNames.reduce((acc, name) => ({ ...acc, [name.toUpperCase()]: false }), {});
+
+      const logicLines = this.taskResult.code
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line && !line.startsWith('(*'));
+
+      let lastOutputState = {};
+
+      this.simulationInterval = setInterval(() => {
+          let cycleState = { ...this.simulationState.variables };
+          const executionStack = []; // Stack for managing IF/ELSIF/ELSE blocks
+
+          for (const line of logicLines) {
+              const upperLine = line.toUpperCase().trim();
+
+              // Determine if we are in a block that should not be executed
+              const canExecuteCurrentLine = executionStack.every(level => level.canExecute);
+
+              if (upperLine.startsWith('IF')) {
+                  let conditionMet = false;
+                  if (canExecuteCurrentLine) {
+                      const condition = line.substring(line.toUpperCase().indexOf('IF') + 2, line.toUpperCase().indexOf('THEN')).trim();
+                      conditionMet = this.evaluateCondition(condition, cycleState);
+                  }
+                  executionStack.push({ canExecute: conditionMet, branchTaken: conditionMet });
+              } 
+              else if (upperLine.startsWith('ELSIF')) {
+                  if (executionStack.length > 0) {
+                      const currentBlock = executionStack[executionStack.length - 1];
+                      const parentCanExecute = executionStack.slice(0, -1).every(level => level.canExecute);
+
+                      if (parentCanExecute && !currentBlock.branchTaken) {
+                          const condition = line.substring(line.toUpperCase().indexOf('ELSIF') + 5, line.toUpperCase().indexOf('THEN')).trim();
+                          const conditionMet = this.evaluateCondition(condition, cycleState);
+                          currentBlock.canExecute = conditionMet;
+                          if (conditionMet) {
+                              currentBlock.branchTaken = true;
+                          }
+                      } else {
+                          currentBlock.canExecute = false;
+                      }
+                  }
+              }
+              else if (upperLine.startsWith('ELSE')) {
+                  if (executionStack.length > 0) {
+                      const currentBlock = executionStack[executionStack.length - 1];
+                      const parentCanExecute = executionStack.slice(0, -1).every(level => level.canExecute);
+
+                      if (parentCanExecute && !currentBlock.branchTaken) {
+                          currentBlock.canExecute = true;
+                          currentBlock.branchTaken = true; // The ELSE branch is now taken
+                      } else {
+                          currentBlock.canExecute = false;
+                      }
+                  }
+              }
+              else if (upperLine.startsWith('END_IF')) {
+                  if (executionStack.length > 0) {
+                      executionStack.pop();
+                  }
+              }
+              // FIX: This condition was too restrictive. It should execute if:
+              // 1. We are inside a conditional block that is true (`canExecuteCurrentLine` is true).
+              // OR 2. We are not inside any conditional block at all (`executionStack.length` is 0).
+              else if (upperLine.includes(':=') && (canExecuteCurrentLine || executionStack.length === 0)) {
+                  const parts = line.split(':=');
+                  const varName = parts[0].trim().toUpperCase();
+                  const valueExpression = parts[1].replace(';', '').trim();
+                  
+                  try {
+                      const result = this.evaluateCondition(valueExpression, cycleState);
+                      cycleState[varName] = result;
+                  } catch (e) {
+                      console.warn(`Could not evaluate assignment expression: ${valueExpression}`, e);
+                  }
+              }
+          }
+
+          this.simulationState.variables = cycleState;
+
+          // Update UI
+          outputs.forEach(output => {
+              const varName = output.name.toUpperCase();
+              const indicator = document.getElementById(`sim-indicator-${output.name}`);
+              const statusText = document.getElementById(`sim-status-${output.name}`);
+              const currentValue = cycleState[varName];
+
+              if (statusText && typeof currentValue !== 'boolean') {
+                  // Handle numeric display_value
+                  statusText.textContent = currentValue;
+                  if (indicator) indicator.classList.toggle('active', currentValue > 0);
+              } else {
+                  // Handle boolean indicator_light
+                  const isNowActive = !!currentValue;
+                  if (indicator) indicator.classList.toggle('active', isNowActive);
+                  if (statusText) {
+                      statusText.textContent = isNowActive ? 'ON' : 'OFF';
+                      statusText.className = `status-text ${isNowActive ? 'on' : 'off'}`;
+                  }
+              }
+
+              // Check for state change to add to timeline
+              if (lastOutputState[varName] !== currentValue) {
+                  this.addTimelineEvent(`Output '${output.name}' Changed`, `State is now ${currentValue}`);
+              }
+              lastOutputState[varName] = currentValue;
+          });
+      }, 200);
+    }
+
+    addTimelineEvent(event, state) {
+        const timelineContainer = document.getElementById('sim-timeline-container');
+        if (!timelineContainer) return;
+
+        // Deactivate previous item
+        const lastActive = timelineContainer.querySelector('.timeline-item.active');
+        if (lastActive) lastActive.classList.remove('active');
+
+        const timelineItem = document.createElement('div');
+        timelineItem.className = 'timeline-item active';
+        
+        this.simulationState.timelineCounter += 0.2; // Corresponds to 200ms interval
+        const timeString = `T+${this.simulationState.timelineCounter.toFixed(1)}s`;
+        
+        timelineItem.innerHTML = `
+            <div class="timeline-marker"></div>
+            <div class="timeline-content">
+                <strong>${timeString}:</strong> ${event} &mdash; ${state}
+            </div>
+        `;
+        
+        timelineContainer.appendChild(timelineItem);
+        timelineContainer.scrollTop = timelineContainer.scrollHeight;
+    }
+
+    resetSimulation() {
+        // Reset timeline UI and counter
+        const timelineContainer = document.getElementById('sim-timeline-container');
+        if (timelineContainer) {
+            timelineContainer.innerHTML = `
+                <div class="timeline-item active">
+                    <div class="timeline-marker"></div>
+                    <div class="timeline-content">
+                        <strong>T+0s:</strong> Simulation Reset.
                     </div>
                 </div>
-            `).join('');
-        } catch (error) {
-            console.error('Failed to load task history:', error);
+            `;
         }
+        this.simulationState.timelineCounter = 0;
+
+        // Restart the simulation loop. startJsSimulation handles clearing the old interval and resetting variables.
+        this.startJsSimulation(this.simulationState.inputs, this.simulationState.outputs);
     }
 
-    async checkSystemStatus() {
+    evaluateCondition(condition, state) {
         try {
-            const response = await fetch('/api/system/info');
-            const data = await response.json();
-            
-            document.getElementById('systemStatus').textContent = 
-                data.system_status === 'healthy' ? 'System OK' : 'System Issues';
-        } catch (error) {
-            document.getElementById('systemStatus').textContent = 'Connection Error';
+            // 1. Replace ST operators with JS operators.
+            // Use a negative lookbehind `(?<!:)` to avoid replacing the assignment operator `:=`.
+            let jsCondition = condition
+                .replace(/\bAND\b/gi, '&&')
+                .replace(/\bOR\b/gi, '||')
+                .replace(/\bNOT\b/gi, '!')
+                .replace(/<>/g, '!=')
+                .replace(/(?<!:)=/g, '==');
+
+            // 2. Replace variable names with state lookups.
+            // This regex matches valid ST identifiers and avoids replacing keywords.
+            jsCondition = jsCondition.replace(/\b[a-zA-Z_][a-zA-Z0-9_]*\b/g, (match) => {
+                const upperMatch = match.toUpperCase();
+                // Don't replace boolean literals
+                if (['TRUE', 'FALSE'].includes(upperMatch)) {
+                    return upperMatch.toLowerCase(); // to js true/false
+                }
+                // For variables, access the state object. Default to false if not found.
+                return `(state['${upperMatch}'] || false)`;
+            });
+
+            return new Function('state', `return ${jsCondition}`)(state);
+        } catch (e) {
+            console.error("Condition evaluation error:", e, "Original:", condition);
+            return false;
         }
     }
 
-    closeModal(modalId) {
-        document.getElementById(modalId).classList.remove('active');
+    closeSimulationModal() {
+        if (this.simulationInterval) {
+            clearInterval(this.simulationInterval);
+            this.simulationInterval = null;
+        }
+        this.simulationModal.classList.remove('active');
     }
 
-    showNotification(message, type = 'info') {
-        // Create notification element
-        const notification = document.createElement('div');
-        notification.className = `notification ${type}`;
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 1rem;
-            background: ${type === 'success' ? 'var(--success-color)' : type === 'error' ? 'var(--danger-color)' : 'var(--primary-color)'};
-            color: white;
-            border-radius: var(--border-radius);
-            box-shadow: var(--shadow-lg);
-            z-index: 1001;
-            animation: slideInRight 0.3s ease;
+    // --- WebSocket Handling ---
+
+    connectWebSocket() {
+        const wsUrl = `ws://${window.location.host}/ws/${this.clientId}`;
+        this.websocket = new WebSocket(wsUrl);
+
+        this.websocket.onopen = () => {
+            console.log('🔌 WebSocket connected.');
+        };
+
+        this.websocket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            this.handleWebSocketMessage(data);
+        };
+
+        this.websocket.onclose = () => {
+            console.log('🔌 WebSocket disconnected. Reconnecting in 3s...');
+            setTimeout(() => this.connectWebSocket(), 3000);
+        };
+
+        this.websocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+    }
+
+    handleWebSocketMessage(data) {
+        console.log('📨 WebSocket message:', data);
+
+        // Ignore messages for other tasks
+        if (data.task_id && this.currentTaskId && data.task_id !== this.currentTaskId) {
+            return;
+        }
+
+        // Handle initial status and progress updates
+        if (data.type === 'status_update' || data.type === 'progress' || data.type === 'agent_update') {
+            if (data.agent) this.updateAgentStatusUI(data.agent, data.status);
+            this.renderAgentMessage({
+                agent_role: data.agent || 'Supervisor',
+                content: data.message,
+                timestamp: data.timestamp,
+            }, true);
+        } else if (data.type === 'completed') {
+            this.renderAgentMessage({
+                agent_role: 'Supervisor',
+                content: 'Workflow completed!',
+                timestamp: data.timestamp,
+            }, true);
+            this.taskResult = data.result; // Store the result
+            this.renderCompletedResult(this.taskResult);
+        } else if (data.type === 'feedback_processed') {
+            this.renderAgentMessage({ agent_role: 'Supervisor', content: 'Feedback processed. New code generated.', timestamp: data.timestamp }, true);
+            this.taskResult = data.result;
+            this.renderCompletedResult(this.taskResult);
+        } else if (data.type === 'error') {
+            this.renderAgentMessage({
+                agent_role: 'Supervisor',
+                content: `Error: ${data.error}`,
+                timestamp: data.timestamp,
+            }, true);
+            this.setFeedbackFormState(true);
+        }
+    }
+
+    renderCompletedResult(result) {
+        const codeOutput = document.getElementById('code-output');
+        const validationOutput = document.getElementById('validation-output');
+
+        codeOutput.innerHTML = `<pre><code>${result.code || "Code not generated."}</code></pre>`;
+
+        const success = result.success || (result.validation_result && result.validation_result.includes("VALIDATION PASSED"));
+        const hasCode = result.code && result.code.trim().length > 0;
+        
+        if (success) {
+            validationOutput.innerHTML = `<pre>${result.validation_result || "Validation passed, but no report was generated."}</pre>`;
+        } else {
+            validationOutput.innerHTML = '<p>Validation failed. Check the "View Full Agent Log" for details.</p>';
+        }
+
+        const simBtn = document.getElementById('simulate-btn'); // This is now the JS sim button
+        if (simBtn) {
+            simBtn.disabled = !hasCode;
+        }
+
+        document.getElementById('copy-code-btn').disabled = !hasCode;
+        document.getElementById('download-code-btn').disabled = !hasCode;
+
+        this.setFeedbackFormState(true);
+    }
+
+    renderAgentMessage(msg, renderToBoth = false) {
+        const chatHistory = document.getElementById('chat-history');
+        const fullLogStream = document.getElementById('full-log-stream');
+
+        // Create a summary for long messages or code blocks for the main chat view
+        let summaryContent = msg.content;
+        const fullContent = msg.content.replace(/\n/g, '<br>'); // Keep full content for the log modal
+
+        if (summaryContent.length > 300 || summaryContent.includes('PROGRAM')) {
+            const firstLine = summaryContent.split('\n')[0];
+            summaryContent = `${firstLine.substring(0, 100)}... <br><i>(Full content in "View Full Agent Log")</i>`;
+        }
+        summaryContent = summaryContent.replace(/\n/g, '<br>');
+
+        const createMessageHTML = (content) => `
+            <div>
+                <span class="agent-name">${msg.agent_role || 'User'}</span>
+                <span class="timestamp">${new Date(msg.timestamp).toLocaleTimeString()}</span>
+            </div>
+            <div>${content}</div>
         `;
-        notification.textContent = message;
 
-        document.body.appendChild(notification);
+        // Render to the main chat history (simplified view)
+        const summaryMessageEl = document.createElement('div');
+        summaryMessageEl.classList.add('log-message');
+        summaryMessageEl.innerHTML = createMessageHTML(summaryContent);
+        chatHistory.appendChild(summaryMessageEl);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
 
-        // Remove after 3 seconds
-        setTimeout(() => {
-            notification.style.animation = 'slideOutRight 0.3s ease';
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.parentNode.removeChild(notification);
-                }
-            }, 300);
-        }, 3000);
+        // Render to the full log modal
+        if (renderToBoth) {
+            const fullMessageEl = document.createElement('div');
+            fullMessageEl.classList.add('log-message');
+            fullMessageEl.innerHTML = createMessageHTML(fullContent);
+            fullLogStream.appendChild(fullMessageEl);
+            fullLogStream.scrollTop = fullLogStream.scrollHeight;
+        }
+    }
+
+    setFeedbackFormState(enabled, buttonText = 'Send Feedback') {
+        document.getElementById('feedback-prompt').disabled = !enabled;
+        const feedbackBtn = document.getElementById('feedback-submit-btn');
+        feedbackBtn.disabled = !enabled;
+        feedbackBtn.textContent = buttonText;
+    }
+
+    resetAgentStatusUI() {
+        const agentItems = document.querySelectorAll('.agent-status-item');
+        agentItems.forEach(item => item.className = 'agent-status-item');
+    }
+
+    updateAgentStatusUI(agentName, status) { // agentName is lowercase
+        const agentItem = document.querySelector(`.agent-status-item[data-agent="${agentName}"]`);
+        if (!agentItem) return;
+
+        // When a new agent becomes active, mark the previous one as completed.
+        if (status === 'active') {
+            const currentActive = document.querySelector('.agent-status-item.active');
+            if (currentActive && currentActive !== agentItem) {
+                currentActive.classList.remove('active');
+                currentActive.classList.add('completed');
+            }
+        }
+
+        // Set the status for the current agent
+        agentItem.classList.remove('active', 'completed', 'error');
+        agentItem.classList.add(status);
     }
 }
 
-// Initialize the app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    new AutoPLCApp();
-});
+// --- API Service Layer ---
+// This maps to the FastAPI backend endpoints.
 
-// Add notification animations to CSS
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideInRight {
-        from { transform: translateX(100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
+const apiService = {    
+    getAllTasks: async () => {
+        const response = await fetch('/api/tasks');
+        if (!response.ok) throw new Error('Network response was not ok');
+        return response.json();
+    },
+
+    createTask: async (data) => {
+        // Your backend uses `/api/generate` to create a new task
+        const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!response.ok) throw new Error('Network response was not ok');
+        return response.json();
+    },
+    
+    getTaskDetails: async (taskId) => {
+        const response = await fetch(`/api/tasks/${taskId}`);
+        if (!response.ok) throw new Error('Network response was not ok');
+        return response.json();
+    },
+
+    getTaskMessages: async (taskId) => {
+        const response = await fetch(`/api/tasks/${taskId}/messages`);
+        if (!response.ok) throw new Error('Network response was not ok');
+        return response.json();
+    },
+
+    submitFeedback: async (data) => {
+        const response = await fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Failed to submit feedback');
+        }
+        return response.json();
+    },
+
+    deleteTask: async (taskId) => {
+        const response = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Failed to delete task');
+        }
+        return response.json();
+    },
+
+    compileCode: async (data) => {
+        const response = await fetch('/api/compile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Failed to compile code');
+        }
+        return response.json();
+    },
+    parseVariables: async (data) => {
+        const response = await fetch('/api/parse-variables', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!response.ok) throw new Error('Failed to parse variables');
+        return response.json();
     }
-    @keyframes slideOutRight {
-        from { transform: translateX(0); opacity: 1; }
-        to { transform: translateX(100%); opacity: 0; }
-    }
-`;
-document.head.appendChild(style);
+    ,
+    generateDashboard: async (data) => {
+        const response = await fetch('/api/simulation/dashboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Failed to generate dashboard');
+        }
+        return response.json();
+    },
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    const app = new AutoPLCApp();
+    app.init();
+});

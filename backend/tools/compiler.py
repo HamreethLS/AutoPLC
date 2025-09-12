@@ -1,200 +1,129 @@
-# backend/tools/compiler.py
+"""
+Enhanced Compiler Integration with robust error handling and detailed reporting
+"""
+
 import os
 import subprocess
 import tempfile
 import re
-from typing import Dict, List
+import asyncio
+from typing import Dict, List, Optional, Tuple
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def run_iec2c_compiler(code: str) -> str:
-    """
-    Enhanced compiler integration with better error handling and reporting
+class CompilerResult:
+    def __init__(self, success: bool, output: str, errors: List[str], warnings: List[str]):
+        self.success = success
+        self.output = output
+        self.errors = errors
+        self.warnings = warnings
+        self.error_count = len(errors)
+        self.warning_count = len(warnings)
+
+class EnhancedCompiler:
+    """Enhanced compiler with better error handling and reporting"""
     
-    Args:
-        code: A string containing the full Structured Text program
+    def __init__(self):
+        self.matiec_path = self._find_matiec_path()
+        self.temp_dir = Path(tempfile.gettempdir()) / "autoplc_compile"
+        self.temp_dir.mkdir(exist_ok=True)
         
-    Returns:
-        A string containing "Compilation Successful." or detailed error information
-    """
-    
-    # Get MATIEC path from environment or use existing path
-    matiec_path = os.getenv("MATIEC_PATH", r"C:\Users\L.S. HAMREETH\OpenPLC_Editor\matiec")
-    
-    if not os.path.exists(matiec_path):
-        return f"Error: MATIEC installation not found at: {matiec_path}\nPlease update MATIEC_PATH in your .env file"
-    
-    # Use temporary file with better naming
-    temp_file_path = f"autoplc_temp_{os.getpid()}.st"
-    full_temp_path = os.path.join(matiec_path, temp_file_path)
-    
-    try:
-        # Write code to temporary file with UTF-8 encoding
-        with open(full_temp_path, "w", encoding="utf-8") as f:
-            f.write(code)
+    def _find_matiec_path(self) -> Optional[str]:
+        """Find MATIEC installation path"""
         
-        # Run compiler
-        command = ["iec2c", temp_file_path]
+        # Try environment variable first
+        env_path = os.getenv("MATIEC_PATH")
+        if env_path and os.path.exists(env_path):
+            return env_path
         
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            cwd=matiec_path,
-            timeout=30  # Add timeout for safety
-        )
+        # Try common installation paths
+        common_paths = [
+            "/usr/local/bin/matiec",
+            "/usr/bin/matiec", 
+            "/opt/matiec/bin",
+            "C:\\matiec\\bin",
+            "C:\\OpenPLC_Editor\\matiec",
+            "C:\\Program Files\\matiec"
+        ]
         
-        if result.returncode == 0:
-            return "✅ Compilation Successful."
-        else:
-            # Enhanced error reporting
-            error_output = result.stderr.strip()
-            if not error_output:
-                error_output = result.stdout.strip()
-            
-            # Clean up error messages for better readability
-            cleaned_errors = clean_compiler_errors(error_output)
-            return f"❌ Compilation Failed:\n{cleaned_errors}"
-            
-    except subprocess.TimeoutExpired:
-        return "❌ Compilation Failed: Compiler timeout (code may have infinite loops)"
-    except FileNotFoundError:
-        return "❌ Error: 'iec2c' command not found. Please ensure MATIEC is properly installed."
-    except Exception as e:
-        return f"❌ Compilation Error: {str(e)}"
-    finally:
-        # Clean up the temporary file
+        for path in common_paths:
+            if os.path.exists(path):
+                return path
+        
+        return None
+    
+    def compile_code(self, code: str) -> CompilerResult:
+        """Compile Structured Text code with enhanced error handling"""
+        
+        if not self.matiec_path:
+            return CompilerResult(
+                success=False,
+                output="",
+                errors=["MATIEC compiler not found. Please install MATIEC and set MATIEC_PATH environment variable."],
+                warnings=[]
+            )
+        
+        # Create a temporary file for the code
+        st_file_path = ""
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.st', dir=self.temp_dir, delete=False, encoding='utf-8'
+        ) as st_file:
+            st_file.write(code)
+            st_file_path = st_file.name
+
         try:
-            if os.path.exists(full_temp_path):
-                os.remove(full_temp_path)
-        except:
-            pass  # Ignore cleanup errors
+            # Command to run the compiler
+            output_dir = self.temp_dir
+            command = [self.matiec_path, "-I", str(output_dir), str(st_file_path)]
 
-def clean_compiler_errors(error_text: str) -> str:
-    """Clean and format compiler error messages for better readability."""
-    
-    if not error_text:
-        return "Unknown compilation error"
-    
-    # Common error patterns and their clean versions
-    error_patterns = [
-        (r"ERROR at line (\d+)", r"Line \1 Error"),
-        (r"syntax error, unexpected (.+)", r"Syntax Error: Unexpected \1"),
-        (r"undeclared variable '(.+)'", r"Undeclared Variable: '\1'"),
-        (r"type mismatch", "Type Mismatch Error"),
-    ]
-    
-    cleaned = error_text
-    for pattern, replacement in error_patterns:
-        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
-    
-    # Remove file paths and keep only relevant error info
-    lines = cleaned.split('\n')
-    relevant_lines = []
-    
-    for line in lines:
-        line = line.strip()
-        if line and not line.startswith('/') and not line.startswith('C:'):
-            relevant_lines.append(line)
-    
-    return '\n'.join(relevant_lines[:10])  # Limit to first 10 error lines
-
-def validate_st_syntax_patterns(code: str) -> Dict:
-    """
-    Pre-compilation syntax validation using regex patterns
-    
-    Args:
-        code: ST code to validate
-        
-    Returns:
-        Dict with validation results
-    """
-    
-    issues = []
-    warnings = []
-    
-    # Check basic structure
-    if not re.search(r"PROGRAM\s+\w+", code, re.IGNORECASE):
-        issues.append("Missing PROGRAM declaration")
-    
-    if not re.search(r"END_PROGRAM", code, re.IGNORECASE):
-        issues.append("Missing END_PROGRAM")
-    
-    # Check for VAR block
-    var_match = re.search(r"VAR(.*?)END_VAR", code, re.DOTALL | re.IGNORECASE)
-    if not var_match:
-        warnings.append("No VAR...END_VAR block found")
-    
-    # Check for BEGIN section
-    if not re.search(r"BEGIN", code, re.IGNORECASE):
-        issues.append("Missing BEGIN keyword")
-    
-    # Check comment syntax
-    if "//" in code:
-        issues.append("Invalid comment syntax: '//' not allowed, use '(* *)'")
-    
-    if "/*" in code or "*/" in code:
-        issues.append("Invalid comment syntax: '/* */' not allowed, use '(* *)'")
-    
-    # Check for forbidden function blocks
-    forbidden_blocks = ["TON", "TOF", "CTU", "CTD", "RTRIG", "FTRIG", "TP", "TONR"]
-    for block in forbidden_blocks:
-        if re.search(rf"\b{block}\b", code, re.IGNORECASE):
-            issues.append(f"Forbidden function block: {block} (use manual implementation)")
-    
-    # Check for loops in main logic (dangerous for scan cycle)
-    dangerous_loops = ["WHILE", "FOR", "REPEAT"]
-    for loop in dangerous_loops:
-        if re.search(rf"\b{loop}\b", code, re.IGNORECASE):
-            warnings.append(f"Warning: {loop} loop detected (may cause scan cycle issues)")
-    
-    return {
-        "valid": len(issues) == 0,
-        "issues": issues,
-        "warnings": warnings,
-        "issue_count": len(issues),
-        "warning_count": len(warnings)
-    }
-
-def get_compiler_info() -> Dict:
-    """Get information about the compiler installation."""
-    
-    matiec_path = os.getenv("MATIEC_PATH", r"C:\Users\L.S. HAMREETH\OpenPLC_Editor\matiec")
-    
-    info = {
-        "matiec_path": matiec_path,
-        "path_exists": os.path.exists(matiec_path),
-        "compiler_available": False,
-        "version": "unknown"
-    }
-    
-    if info["path_exists"]:
-        try:
-            # Test compiler availability
-            result = subprocess.run(
-                ["iec2c", "--help"],
+            # Execute the compiler
+            process = subprocess.run(
+                command,
                 capture_output=True,
                 text=True,
-                cwd=matiec_path,
-                timeout=10
+                timeout=30,  # 30-second timeout
+                check=False  # Don't raise exception on non-zero exit code
             )
-            
-            info["compiler_available"] = result.returncode == 0
-            
-            if info["compiler_available"]:
-                # Try to extract version info
-                version_result = subprocess.run(
-                    ["iec2c", "--version"],
-                    capture_output=True,
-                    text=True,
-                    cwd=matiec_path,
-                    timeout=5
-                )
-                if version_result.returncode == 0:
-                    info["version"] = version_result.stdout.strip()
-                    
+
+            output = process.stdout + "\n" + process.stderr
+            errors = []
+            warnings = []
+
+            # Parse output for errors and warnings
+            for line in output.splitlines():
+                if "error:" in line.lower():
+                    errors.append(line)
+                elif "warning:" in line.lower():
+                    warnings.append(line)
+
+            success = process.returncode == 0 and not errors
+
+            return CompilerResult(success=success, output=output, errors=errors, warnings=warnings)
+
+        except subprocess.TimeoutExpired:
+            return CompilerResult(
+                success=False,
+                output="Compiler process timed out.",
+                errors=["Compilation took too long and was terminated."],
+                warnings=[]
+            )
         except Exception as e:
-            info["error"] = str(e)
+            return CompilerResult(success=False, output=str(e), errors=[f"An unexpected error occurred during compilation: {e}"], warnings=[])
+        finally:
+            if os.path.exists(st_file_path):
+                os.remove(st_file_path)
+
+# Global enhanced compiler instance
+enhanced_compiler = EnhancedCompiler()
+
+def run_iec2c_compiler(code: str) -> str:
+    """Legacy function for backward compatibility"""
+    result = enhanced_compiler.compile_code(code)
     
-    return info
+    if result.success:
+        return "✅ Compilation Successful."
+    else:
+        error_summary = "\n".join(result.errors[:5])
+        return f"❌ Compilation Failed:\n{error_summary}"

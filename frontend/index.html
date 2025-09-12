@@ -3,156 +3,154 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoPLC - AI-Powered PLC Code Generator</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>AutoPLC Enhanced v2.0</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="app-container">
-        <!-- Header -->
-        <header class="app-header">
-            <div class="header-content">
-                <div class="logo">
-                    <h1>AutoPLC</h1>
-                    <span class="version">v2.0 Enhanced</span>
-                </div>
-                <div class="header-actions">
-                    <button id="systemInfoBtn" class="btn btn-secondary">System Info</button>
-                    <button id="newChatBtn" class="btn btn-primary">New Chat</button>
-                </div>
+        <!-- Persistent Top Navigation Bar -->
+        <header class="navbar">
+            <div class="logo">
+                <span class="logo-icon">🚀</span>
+                <span class="logo-text">AutoPLC Enhanced</span>
             </div>
+            <nav class="nav-links">
+                <a href="#projects" class="nav-link active" data-view="projects">Projects</a>
+            </nav>
         </header>
 
-        <!-- Main Content -->
+        <!-- Main Content Area -->
         <main class="main-content">
-            <!-- Sidebar -->
-            <aside class="sidebar">
-                <div class="sidebar-header">
-                    <h3>Recent Tasks</h3>
+            <!-- Projects View -->
+            <div id="projects-view" class="view active">
+                <div class="view-header">
+                    <h1 class="view-title">Project Manager</h1>
+                    <button class="btn btn-primary" id="create-project-btn">New Project</button>
                 </div>
-                <div class="task-history" id="taskHistory">
-                    <!-- Task history will be populated here -->
+                <div class="table-container" id="projects-table-container">
+                    <!-- System health, alerts, and agent status will be rendered here by app.js -->
                 </div>
-            </aside>
+            </div>
 
-            <!-- Chat Area -->
-            <section class="chat-section">
-                <div class="chat-container">
-                    <div class="chat-messages" id="chatMessages">
-                        <div class="welcome-message">
-                            <div class="welcome-content">
-                                <h2>🤖 Welcome to AutoPLC Enhanced</h2>
-                                <p>AI-powered Structured Text generation with multi-agent collaboration</p>
-                                <div class="feature-highlights">
-                                    <div class="feature">
-                                        <span class="feature-icon">🧠</span>
-                                        <span>NVIDIA NIM Multi-Model Routing</span>
-                                    </div>
-                                    <div class="feature">
-                                        <span class="feature-icon">⚡</span>
-                                        <span>Real-time Agent Collaboration</span>
-                                    </div>
-                                    <div class="feature">
-                                        <span class="feature-icon">✅</span>
-                                        <span>Syntax Validation & Simulation</span>
-                                    </div>
-                                </div>
-                            </div>
+            <!-- Project Detail View -->
+            <div id="project-detail-view" class="view">
+                <div class="view-header">
+                    <h1 class="view-title" id="project-detail-title">Project Details</h1>
+                    <div class="project-actions">
+                        <button class="btn" id="copy-code-btn" disabled>Copy Code</button>
+                        <button class="btn" id="download-code-btn" disabled>Download .st</button>
+                        <button class="btn" id="compile-btn" disabled>Compile</button>
+                        <button class="btn" id="simulate-btn" disabled>Simulate Logic</button>
+                        <button class="btn" id="view-log-btn">View Full Agent Log</button>
+                        <button class="btn" id="back-to-projects-btn">Back to Projects</button>
+                    </div>
+                </div>
+                <div class="agent-status-container" id="agent-status-container">
+                    <!-- Agent statuses will be rendered here by app.js -->
+                    <div class="agent-status-item" data-agent="planner"><span class="agent-icon">📋</span><span class="agent-name">Planner</span></div>
+                    <div class="agent-status-item" data-agent="knowledge"><span class="agent-icon">🧠</span><span class="agent-name">Knowledge</span></div>
+                    <div class="agent-status-item" data-agent="retrieval"><span class="agent-icon">🔍</span><span class="agent-name">Retrieval</span></div>
+                    <div class="agent-status-item" data-agent="coder"><span class="agent-icon">⚙️</span><span class="agent-name">Coder</span></div>
+                    <div class="agent-status-item" data-agent="validator"><span class="agent-icon">✅</span><span class="agent-name">Validator</span></div>
+                </div>
+                <div class="project-detail-container-reimagined">
+                    <!-- Left Panel: Chat/Interaction -->
+                    <div class="chat-panel">
+                        <div id="chat-history" class="chat-history">
+                            <!-- Simplified log / key events will appear here -->
+                        </div>
+                        <div class="prompt-area">
+                            <form id="feedback-form">
+                                <textarea id="feedback-prompt" placeholder="Provide feedback or new instructions to refine the code..." rows="3" disabled></textarea>
+                                <button type="submit" class="btn btn-primary" id="feedback-submit-btn" disabled>Send Feedback</button>
+                            </form>
                         </div>
                     </div>
-
-                    <!-- Input Area -->
-                    <div class="chat-input-container">
-                        <div class="input-wrapper">
-                            <textarea 
-                                id="promptInput" 
-                                placeholder="Describe your PLC control system (e.g., 'Control a conveyor belt with start/stop buttons and safety interlocks')"
-                                rows="3"
-                                maxlength="1000"
-                            ></textarea>
-                            <div class="input-actions">
-                                <div class="input-info">
-                                    <span id="charCount">0/1000</span>
-                                </div>
-                                <button id="generateBtn" class="btn btn-primary" disabled>
-                                    <span class="btn-text">Generate ST Code</span>
-                                    <span class="btn-loading" style="display: none;">
-                                        <span class="spinner"></span> Generating...
-                                    </span>
-                                </button>
-                            </div>
+                    <!-- Right Panel: Code & Validation -->
+                    <div class="code-panel">
+                        <div id="code-output" class="code-output">
+                            <pre><code>(* Code will be generated here... *)</code></pre>
+                        </div>
+                        <div id="validation-output" class="validation-output">
+                            <p>Waiting for validation...</p>
                         </div>
                     </div>
                 </div>
-            </section>
-
-            <!-- Code Panel -->
-            <section class="code-panel" id="codePanel">
-                <div class="code-header">
-                    <h3>Generated Structured Text Code</h3>
-                    <div class="code-actions">
-                        <button id="copyCodeBtn" class="btn btn-secondary">Copy Code</button>
-                        <button id="simulateBtn" class="btn btn-success">Run Simulation</button>
-                        <button id="downloadBtn" class="btn btn-secondary">Download .st</button>
-                    </div>
-                </div>
-                <div class="code-content">
-                    <pre><code id="generatedCode" class="language-iec">(* Generated code will appear here *)</code></pre>
-                </div>
-                <div class="code-stats" id="codeStats">
-                    <!-- Code statistics will appear here -->
-                </div>
-            </section>
+            </div>
         </main>
+    </div>
 
-        <!-- Status Bar -->
-        <div class="status-bar">
-            <div class="status-content">
-                <div class="status-left">
-                    <span class="status-indicator" id="statusIndicator">🟢 Ready</span>
-                    <span class="status-text" id="statusText">AutoPLC Enhanced - Ready for code generation</span>
-                </div>
-                <div class="status-right">
-                    <span id="systemStatus">System OK</span>
-                </div>
+    <!-- Full Log Modal -->
+    <div id="full-log-modal" class="modal">
+        <div class="modal-content wide">
+            <div class="modal-header">
+                <h2>Full Agent Collaboration Log</h2>
+                <button class="modal-close-btn">&times;</button>
             </div>
-        </div>
-
-        <!-- Modals -->
-        <div class="modal" id="systemInfoModal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>System Information</h3>
-                    <button class="modal-close" id="closeModalBtn">&times;</button>
-                </div>
-                <div class="modal-body" id="systemInfoContent">
-                    Loading system information...
-                </div>
-            </div>
-        </div>
-
-        <div class="modal" id="simulationModal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>PLC Simulation</h3>
-                    <button class="modal-close" id="closeSimModalBtn">&times;</button>
-                </div>
-                <div class="modal-body" id="simulationContent">
-                    <div class="simulation-controls">
-                        <button id="startSimBtn" class="btn btn-success">Start Simulation</button>
-                        <button id="stopSimBtn" class="btn btn-danger">Stop Simulation</button>
-                        <button id="refreshSimBtn" class="btn btn-secondary">Refresh Status</button>
-                    </div>
-                    <div class="simulation-status" id="simulationStatus">
-                        Ready for simulation...
-                    </div>
-                </div>
+            <div class="modal-body">
+                <div id="full-log-stream" class="log-stream"></div>
             </div>
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <!-- Simulation Modal -->
+    <div id="custom-simulation-modal" class="modal">
+        <div class="modal-content wide">
+            <div class="modal-header">
+                <h2>JavaScript Logic Simulator</h2>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="simulation-interface">
+                    <div class="simulation-section">
+                        <h4>Input Indicators</h4>
+                        <div class="io-indicators" id="sim-inputs-container">
+                            <!-- Input buttons will be dynamically generated here -->
+                        </div>
+                    </div>
+                    <div class="simulation-section">
+                        <h4>Output Indicators</h4>
+                        <div class="io-indicators" id="sim-outputs-container">
+                            <!-- Output indicators will be dynamically generated here -->
+                        </div>
+                    </div>
+                    <div class="simulation-section timeline-section">
+                        <h4>Timeline</h4>
+                        <div class="timeline" id="sim-timeline-container">
+                            <!-- Timeline events will be generated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" id="reset-simulation-btn">Reset Simulation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals (hidden by default) -->
+    <div id="create-project-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New Project</h2>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="create-project-form">
+                    <div class="form-group">
+                        <label for="project-name">Project Name / Prompt</label>
+                        <textarea id="project-prompt" rows="4" placeholder="Describe the PLC task, e.g., 'Control a conveyor belt with two sensors and a motor'." required></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn" id="cancel-create-btn">Cancel</button>
+                <button type="submit" form="create-project-form" class="btn btn-primary">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
 </body>
 </html>

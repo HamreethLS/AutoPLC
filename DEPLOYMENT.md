@@ -57,7 +57,7 @@ MATIEC_PATH=C:\path\to\your\matiec\installation
 
 ```bash
 # First-time setup (creates vector database)
-python backend/ingest.py
+python -m backend.ingest
 
 # You should see:
 # --- Starting Knowledge Base Ingestion Process ---
@@ -68,7 +68,7 @@ python backend/ingest.py
 
 ```bash
 # Start the enhanced backend server
-python backend/app.py
+python -m backend.app
 
 # You should see:
 # 🚀 Starting Enhanced AutoPLC Backend Server...
