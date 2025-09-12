@@ -132,7 +132,9 @@ class AutoPLCApp {
                 <td>${new Date(task.created_at).toLocaleString()}</td>
                 <td>
                     <div class="table-actions">
-                        <button class="btn view-project-btn" data-task-id="${task.id}">View</button>
+                        <button class="btn-icon view-project-btn" title="View Project" data-task-id="${task.id}">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 12C1 12 5 4 12 4C19 4 23 12 23 12C23 12 19 20 12 20C5 20 1 12 1 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
                         <button class="btn-icon delete-project-btn" title="Delete Project" data-task-id="${task.id}">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;">
                                 <path d="M6 2H10M2 4H14M12.6667 4L12.1991 11.0129C12.129 12.065 12.0939 12.5911 11.8667 13.01C11.6666 13.3866 11.3648 13.6884 10.9882 13.8884C10.57 14.1156 10.0439 14.1507 9.00004 14.2208L7.00004 14.3641C5.95618 14.4342 5.43425 14.4693 5.01604 14.2421C4.63943 14.0421 4.33764 13.7403 4.1376 13.3637C3.91042 12.9455 3.87535 12.4236 3.80521 11.3797L3.33337 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -353,13 +355,28 @@ class AutoPLCApp {
             timeline: [],
             timelineCounter: 0,
             inputs: inputs,
-            outputs: outputs
+            outputs: outputs,
+            momentaryInputs: new Set() // Add this for momentary buttons
         };
         this.buildSimulatorUIFromDef(dashboardDef);
         this.simulationModal.classList.add('active');
-        this.startJsSimulation(inputs, outputs);
+        this.startSimulation(inputs, outputs);
     }
 
+    parseAllVariablesFromCode(code) {
+        const varBlockMatch = code.match(/VAR\s*([\s\S]*?)\s*END_VAR/i);
+        if (!varBlockMatch) return [];
+    
+        const varBlock = varBlockMatch[1];
+        const varRegex = /(\w+)\s*:/g;
+        const variables = new Set();
+        let match;
+        while ((match = varRegex.exec(varBlock)) !== null) {
+            variables.add(match[1]);
+        }
+        return Array.from(variables);
+    }
+    
     buildSimulatorUIFromDef(dashboardDef) {
         const inputsContainer = document.getElementById('sim-inputs-container');
         const outputsContainer = document.getElementById('sim-outputs-container');
@@ -431,21 +448,23 @@ class AutoPLCApp {
 
 
     toggleInput(varName) {
-        const variable = this.simulationState.variables[varName.toUpperCase()];
+        const variableKey = varName.toUpperCase();
+        const variable = this.simulationState.variables[variableKey];
         if (typeof variable === 'undefined' || typeof variable !== 'boolean') return;
-
+    
+        // If a press is already in progress, do nothing
+        if (this.simulationState.variables[variableKey] === true) return;
+    
         // Simulate a momentary button press
-        this.simulationState.variables[varName.toUpperCase()] = true;
+        this.simulationState.variables[variableKey] = true;
         this.addTimelineEvent(`Input '${varName}' Pressed`, 'Input Active');
         const indicator = document.getElementById(`sim-indicator-${varName}`);
         if (indicator) indicator.classList.add('active');
-
-        setTimeout(() => {
-            this.simulationState.variables[varName.toUpperCase()] = false;
-            if (indicator) indicator.classList.remove('active');
-        }, 500); // Button is "pressed" for 500ms
+    
+        // Flag this input to be reset after the next simulation cycle
+        this.simulationState.momentaryInputs.add(variableKey);
     }
-
+    
     toggleSwitch(varName) {
         const variableKey = varName.toUpperCase();
         const currentState = this.simulationState.variables[variableKey];
@@ -457,121 +476,87 @@ class AutoPLCApp {
         if (indicator) indicator.classList.toggle('active', newState);
     }
 
-    startJsSimulation(inputs, outputs) {
+    startSimulation(inputs, outputs) {
       if (this.simulationInterval) {
           clearInterval(this.simulationInterval);
       }
       
-      const allVarNames = [...inputs.map(i => i.name), ...outputs.map(o => o.name)];
-      this.simulationState.variables = allVarNames.reduce((acc, name) => ({ ...acc, [name.toUpperCase()]: false }), {});
-
-      const logicLines = this.taskResult.code
-          .split('\n')
-          .map(line => line.trim())
-          .filter(line => line && !line.startsWith('(*'));
+      const allVars = this.parseAllVariablesFromCode(this.taskResult.code);
+      
+      this.simulationState.variables = allVars.reduce((acc, name) => {
+          acc[name.toUpperCase()] = false; // Default all to false
+          return acc;
+      }, {});
 
       let lastOutputState = {};
 
-      this.simulationInterval = setInterval(() => {
-          let cycleState = { ...this.simulationState.variables };
-          const executionStack = []; // Stack for managing IF/ELSIF/ELSE blocks
-
-          for (const line of logicLines) {
-              const upperLine = line.toUpperCase().trim();
-
-              // Determine if we are in a block that should not be executed
-              const canExecuteCurrentLine = executionStack.every(level => level.canExecute);
-
-              if (upperLine.startsWith('IF')) {
-                  let conditionMet = false;
-                  if (canExecuteCurrentLine) {
-                      const condition = line.substring(line.toUpperCase().indexOf('IF') + 2, line.toUpperCase().indexOf('THEN')).trim();
-                      conditionMet = this.evaluateCondition(condition, cycleState);
-                  }
-                  executionStack.push({ canExecute: conditionMet, branchTaken: conditionMet });
-              } 
-              else if (upperLine.startsWith('ELSIF')) {
-                  if (executionStack.length > 0) {
-                      const currentBlock = executionStack[executionStack.length - 1];
-                      const parentCanExecute = executionStack.slice(0, -1).every(level => level.canExecute);
-
-                      if (parentCanExecute && !currentBlock.branchTaken) {
-                          const condition = line.substring(line.toUpperCase().indexOf('ELSIF') + 5, line.toUpperCase().indexOf('THEN')).trim();
-                          const conditionMet = this.evaluateCondition(condition, cycleState);
-                          currentBlock.canExecute = conditionMet;
-                          if (conditionMet) {
-                              currentBlock.branchTaken = true;
-                          }
-                      } else {
-                          currentBlock.canExecute = false;
+      // Use a longer interval for LLM calls
+      this.simulationInterval = setInterval(async () => {
+          try {
+              const stateToSend = { ...this.simulationState.variables };
+  
+              const response = await apiService.simulationStep({
+                  code: this.taskResult.code,
+                  current_state: stateToSend
+              });
+  
+              // After the API call, reset momentary inputs that were active for this cycle
+              if (this.simulationState.momentaryInputs.size > 0) {
+                  this.simulationState.momentaryInputs.forEach(key => {
+                      this.simulationState.variables[key] = false;
+                      // Find original case for ID
+                      const varName = allVars.find(v => v.toUpperCase() === key);
+                      if (varName) {
+                          const indicator = document.getElementById(`sim-indicator-${varName}`);
+                          if (indicator) indicator.classList.remove('active');
                       }
-                  }
+                  });
+                  this.simulationState.momentaryInputs.clear();
               }
-              else if (upperLine.startsWith('ELSE')) {
-                  if (executionStack.length > 0) {
-                      const currentBlock = executionStack[executionStack.length - 1];
-                      const parentCanExecute = executionStack.slice(0, -1).every(level => level.canExecute);
-
-                      if (parentCanExecute && !currentBlock.branchTaken) {
-                          currentBlock.canExecute = true;
-                          currentBlock.branchTaken = true; // The ELSE branch is now taken
-                      } else {
-                          currentBlock.canExecute = false;
-                      }
-                  }
-              }
-              else if (upperLine.startsWith('END_IF')) {
-                  if (executionStack.length > 0) {
-                      executionStack.pop();
-                  }
-              }
-              // FIX: This condition was too restrictive. It should execute if:
-              // 1. We are inside a conditional block that is true (`canExecuteCurrentLine` is true).
-              // OR 2. We are not inside any conditional block at all (`executionStack.length` is 0).
-              else if (upperLine.includes(':=') && (canExecuteCurrentLine || executionStack.length === 0)) {
-                  const parts = line.split(':=');
-                  const varName = parts[0].trim().toUpperCase();
-                  const valueExpression = parts[1].replace(';', '').trim();
-                  
-                  try {
-                      const result = this.evaluateCondition(valueExpression, cycleState);
-                      cycleState[varName] = result;
-                  } catch (e) {
-                      console.warn(`Could not evaluate assignment expression: ${valueExpression}`, e);
-                  }
-              }
-          }
-
-          this.simulationState.variables = cycleState;
-
-          // Update UI
-          outputs.forEach(output => {
-              const varName = output.name.toUpperCase();
-              const indicator = document.getElementById(`sim-indicator-${output.name}`);
-              const statusText = document.getElementById(`sim-status-${output.name}`);
-              const currentValue = cycleState[varName];
-
-              if (statusText && typeof currentValue !== 'boolean') {
-                  // Handle numeric display_value
-                  statusText.textContent = currentValue;
-                  if (indicator) indicator.classList.toggle('active', currentValue > 0);
+  
+              if (response.success) {
+                  // Backend returns uppercase keys, which matches our internal state
+                  this.simulationState.variables = response.new_state;
               } else {
-                  // Handle boolean indicator_light
-                  const isNowActive = !!currentValue;
-                  if (indicator) indicator.classList.toggle('active', isNowActive);
-                  if (statusText) {
-                      statusText.textContent = isNowActive ? 'ON' : 'OFF';
-                      statusText.className = `status-text ${isNowActive ? 'on' : 'off'}`;
+                  console.error("Simulation step failed:", response.error);
+                  this.addTimelineEvent('Simulation Error', response.error.substring(0, 100) + '...');
+                  clearInterval(this.simulationInterval);
+                  this.simulationInterval = null;
+                  return;
+              }
+  
+              // Update UI based on the new state
+              outputs.forEach(output => {
+                  const varName = output.name.toUpperCase();
+                  const indicator = document.getElementById(`sim-indicator-${output.name}`);
+                  const statusText = document.getElementById(`sim-status-${output.name}`);
+                  const currentValue = this.simulationState.variables[varName];
+  
+                  if (statusText && typeof currentValue !== 'boolean') {
+                      statusText.textContent = currentValue;
+                      if (indicator) indicator.classList.toggle('active', currentValue > 0);
+                  } else {
+                      const isNowActive = !!currentValue;
+                      if (indicator) indicator.classList.toggle('active', isNowActive);
+                      if (statusText) {
+                          statusText.textContent = isNowActive ? 'ON' : 'OFF';
+                          statusText.className = `status-text ${isNowActive ? 'on' : 'off'}`;
+                      }
                   }
-              }
-
-              // Check for state change to add to timeline
-              if (lastOutputState[varName] !== currentValue) {
-                  this.addTimelineEvent(`Output '${output.name}' Changed`, `State is now ${currentValue}`);
-              }
-              lastOutputState[varName] = currentValue;
-          });
-      }, 200);
+  
+                  if (lastOutputState[varName] !== currentValue) {
+                      this.addTimelineEvent(`Output '${output.name}' Changed`, `State is now ${currentValue}`);
+                  }
+                  lastOutputState[varName] = currentValue;
+              });
+  
+          } catch (error) {
+              console.error("API call for simulation step failed:", error);
+              this.addTimelineEvent('API Error', error.message);
+              clearInterval(this.simulationInterval);
+              this.simulationInterval = null;
+          }
+      }, 1000); // 1 second interval
     }
 
     addTimelineEvent(event, state) {
@@ -615,37 +600,7 @@ class AutoPLCApp {
         this.simulationState.timelineCounter = 0;
 
         // Restart the simulation loop. startJsSimulation handles clearing the old interval and resetting variables.
-        this.startJsSimulation(this.simulationState.inputs, this.simulationState.outputs);
-    }
-
-    evaluateCondition(condition, state) {
-        try {
-            // 1. Replace ST operators with JS operators.
-            // Use a negative lookbehind `(?<!:)` to avoid replacing the assignment operator `:=`.
-            let jsCondition = condition
-                .replace(/\bAND\b/gi, '&&')
-                .replace(/\bOR\b/gi, '||')
-                .replace(/\bNOT\b/gi, '!')
-                .replace(/<>/g, '!=')
-                .replace(/(?<!:)=/g, '==');
-
-            // 2. Replace variable names with state lookups.
-            // This regex matches valid ST identifiers and avoids replacing keywords.
-            jsCondition = jsCondition.replace(/\b[a-zA-Z_][a-zA-Z0-9_]*\b/g, (match) => {
-                const upperMatch = match.toUpperCase();
-                // Don't replace boolean literals
-                if (['TRUE', 'FALSE'].includes(upperMatch)) {
-                    return upperMatch.toLowerCase(); // to js true/false
-                }
-                // For variables, access the state object. Default to false if not found.
-                return `(state['${upperMatch}'] || false)`;
-            });
-
-            return new Function('state', `return ${jsCondition}`)(state);
-        } catch (e) {
-            console.error("Condition evaluation error:", e, "Original:", condition);
-            return false;
-        }
+        this.startSimulation(this.simulationState.inputs, this.simulationState.outputs);
     }
 
     closeSimulationModal() {
@@ -901,6 +856,18 @@ const apiService = {
         if (!response.ok) {
             const err = await response.json();
             throw new Error(err.detail || 'Failed to generate dashboard');
+        }
+        return response.json();
+    },
+    simulationStep: async (data) => {
+        const response = await fetch('/api/simulation/step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Failed to run simulation step');
         }
         return response.json();
     },

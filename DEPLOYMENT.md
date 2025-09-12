@@ -55,13 +55,11 @@ MATIEC_PATH=C:\path\to\your\matiec\installation
 
 ### Step 4: Initialize Knowledge Base
 
+Make sure your documentation files (e.g., `.md`, `.py`, `.c`) are placed in the `knowledge_base/documents/` directory. The script will create these directories if they don't exist.
+
 ```bash
 # First-time setup (creates vector database)
 python -m backend.ingest
-
-# You should see:
-# 🧠 Initializing Knowledge Base...
-# ✅ Knowledge Base Initialization Complete!
 ```
 
 ### Step 5: Start the Application

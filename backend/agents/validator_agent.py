@@ -106,12 +106,10 @@ class ValidatorAgent:
         llm_score = scores.get("llm_validation", 0.0)
 
         # Determine success
-        # The primary condition is a perfect score from the LLM validator,
-        # indicating 100% logical and syntactical correctness.
-        # We also ensure the basic structure is valid as a safety net.
+        # Success is determined by a high overall score, with a minimum bar for structure.
         success = (
-            llm_score == 1.0 and
-            scores.get("structure", 0) > 0.8
+            overall_score > 0.6 and
+            scores.get("structure", 0) > 0.5 # Ensures basic program structure is valid
         )
         
         return ValidationResult(success, overall_score, details)

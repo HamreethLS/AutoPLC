@@ -161,16 +161,24 @@ body {
 
 .btn-icon {
     background: none;
-    border: none;
-    font-size: 1.2rem;
-    padding: 5px 8px;
+    border: 1px solid transparent;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
     color: var(--text-secondary);
     border-radius: 4px;
     transition: all 0.2s ease-in-out;
 }
 
-.btn-icon:hover {
+.btn-icon:hover:not(:disabled) {
+    color: var(--text-primary);
+    background-color: var(--bg-paper-light);
+}
+
+.delete-project-btn:hover {
     color: var(--error-color);
     background-color: rgba(244, 67, 54, 0.1);
 }
@@ -375,6 +383,13 @@ body {
     font-family: inherit;
     resize: vertical;
 }
+
+#feedback-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 
 .code-output {
     flex-grow: 1;

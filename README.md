@@ -44,7 +44,7 @@ AutoPLC is a cutting-edge hackathon project that uses multiple specialized AI ag
 
     MATIEC Compiler Integration: Real syntax validation
 
-    Knowledge Base: RAG with PDF documentation
+    Knowledge Base: RAG with Markdown and source code from `knowledge_base/documents`
 
     Error Recovery: Automatic code fixing and optimization
 
@@ -55,6 +55,6 @@ AutoPLC is a cutting-edge hackathon project that uses multiple specialized AI ag
 🏗 Architecture
 
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Modern UI     │    │  Enhanced Flask  │    │  NVIDIA NIM     │
-│   (React-like)  │◄──►│     Backend      │◄──►│   API Cluster   │
+│   Modern UI     │    │   FastAPI Backend  │    │  NVIDIA NIM     │
+│   (React-like)  │◄──►│ (Uvicorn Server) │◄──►│   API Cluster   │
 │_________________│    │__________________|    |_________________|

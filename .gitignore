@@ -1,35 +1,21 @@
-# --- Python ---
-venv/
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.egg-info/
-.eggs/
 
-# --- Environment ---
+# Virtual environment
+venv/
+
+# Environment variables
 .env
-*.env
 
-# --- Databases ---
-*.db
-*.sqlite3
-*.sqlite
-*.bin
+# Database files
+knowledge_base/chroma_db/
+db/
 
-# --- Cache / Temporary ---
-.cache/
-*.log
-*.tmp
-*.swp
+# User-uploaded documents for knowledge base
+knowledge_base/documents/
 
-# --- Frontend Builds ---
-node_modules/
-dist/
-build/
-
-# --- OS / Editor ---
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
+# Temporary files
+temp/

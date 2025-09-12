@@ -53,6 +53,10 @@ class DashboardGenerationRequest(BaseModel):
     code: str
     prompt: str
 
+class SimulationStepRequest(BaseModel):
+    code: str
+    current_state: Dict[str, Any]
+
 class TaskResponse(BaseModel):
     task_id: str
     prompt: Optional[str] = None
@@ -266,6 +270,15 @@ async def generate_dashboard_endpoint(request: DashboardGenerationRequest):
     result = await simulator.generate_dashboard_definition(request.code, request.prompt)
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to generate dashboard"))
+    return result
+
+@app.post("/api/simulation/step")
+async def simulation_step_endpoint(request: SimulationStepRequest):
+    """Runs a single step of the simulation using an LLM."""
+    simulator = SimulatorAgent()
+    result = await simulator.run_simulation_step(request.code, request.current_state)
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to run simulation step"))
     return result
 
 

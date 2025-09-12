@@ -1,385 +1,149 @@
 # backend/tools/knowledge_base.py
 
 import os
-import chromadb
-import fitz  # PyMuPDF
-from sentence_transformers import SentenceTransformer
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+import shutil
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Chroma
 from typing import List, Dict, Optional
-import json
 
 # --- GLOBAL VARIABLES ---
-client = None
-collection = None
-embedding_model = None
+db = None
+embeddings = None
 
-# --- ENHANCED: Define paths ---
+# --- Define paths ---
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 PARENT_DIR = os.path.dirname(BASE_DIR)  # backend/
 ROOT_DIR = os.path.dirname(PARENT_DIR)  # project root
-DB_PATH = os.path.join(ROOT_DIR, "knowledge_base", "chroma_db")
-DOCUMENTS_PATH = os.path.join(ROOT_DIR, "knowledge_base", "documents")
 
-def initialize_knowledge_base():
+# Define knowledge base paths
+KNOWLEDGE_BASE_DIR = os.path.join(ROOT_DIR, "knowledge_base")
+SOURCE_DIRECTORY = os.path.join(KNOWLEDGE_BASE_DIR, "documents")
+PERSIST_DIRECTORY = os.path.join(KNOWLEDGE_BASE_DIR, "chroma_db")
+EMBEDDINGS_MODEL_NAME = os.environ.get('EMBEDDINGS_MODEL_NAME', 'all-MiniLM-L6-v2')
+
+
+def initialize_knowledge_base(force_reingest: bool = False):
     """Initializes the ChromaDB client and collection, and loads the embedding model."""
-    global client, collection, embedding_model
+    global db, embeddings
 
-    if collection is not None:
+    if db is not None and not force_reingest:
         return
 
     print("🧠 Initializing Knowledge Base...")
 
     try:
-        # Ensure directories exist
-        os.makedirs(DB_PATH, exist_ok=True)
-        os.makedirs(DOCUMENTS_PATH, exist_ok=True)
+        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDINGS_MODEL_NAME)
 
-        print(f"📂 Using ChromaDB path: {DB_PATH}")
-        print(f"📁 Documents path: {DOCUMENTS_PATH}")
+        if force_reingest and os.path.exists(PERSIST_DIRECTORY):
+            print(f"🗑️ Removing existing vector store for re-ingestion: {PERSIST_DIRECTORY}")
+            shutil.rmtree(PERSIST_DIRECTORY)
 
-        client = chromadb.PersistentClient(path=DB_PATH)
-        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-
-        collection_name = "plc_knowledge_base"
-        collection = client.get_or_create_collection(name=collection_name)
-
-        # Enhanced ingestion check
-        if collection.count() == 0:
-            print("📚 Knowledge base is empty. Running enhanced ingestion...")
-            ingest_documents_and_builtin_knowledge()
+        if not os.path.exists(PERSIST_DIRECTORY) or not os.listdir(PERSIST_DIRECTORY):
+            print("📚 Knowledge base is empty or missing. Running ingestion...")
+            ingest_documents()
         else:
-            print(f"✅ Knowledge base loaded. Collection count: {collection.count()}")
+            print(f"✅ Loading existing knowledge base from: {PERSIST_DIRECTORY}")
+
+        # Load the persisted database
+        db = Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embeddings)
+        
+        print(f"✅ Knowledge base loaded. Collection count: {db._collection.count()}")
 
     except Exception as e:
         print(f"❌ FATAL Error initializing knowledge base: {e}")
         raise
 
-def ingest_documents_and_builtin_knowledge():
-    """Enhanced ingestion: Combines PDF documents with built-in IEC knowledge."""
-    global collection, embedding_model
+def ingest_documents():
+    """Ingests markdown and source code documents from the source directory into the vector store."""
+    global embeddings
 
-    if collection is None or embedding_model is None:
-        print("❌ Error: Knowledge base not initialized. Cannot ingest documents.")
+    if embeddings is None:
+        print("❌ Error: Embedding model not initialized. Cannot ingest documents.")
         return
 
-    all_chunks = []
-    metadata_list = []
+    if not os.path.exists(SOURCE_DIRECTORY):
+        print(f"⚠️ Source directory '{SOURCE_DIRECTORY}' not found. Creating it. Please add documents to it.")
+        os.makedirs(SOURCE_DIRECTORY)
+        return
 
-    try:
-        # PART 1: Built-in IEC 61131-3 Documentation
-        builtin_knowledge = get_builtin_iec_knowledge()
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=100,
-            separators=["\n\n", "\n", ". ", ".", ""]
-        )
+    print(f"Ingesting documents from {SOURCE_DIRECTORY}")
 
-        for doc_name, content in builtin_knowledge.items():
-            chunks = text_splitter.split_text(content)
-            for i, chunk in enumerate(chunks):
-                if chunk.strip():
-                    all_chunks.append(chunk.strip())
-                    metadata_list.append({
-                        "source": doc_name,
-                        "type": "builtin",
-                        "chunk_id": len(all_chunks) - 1
-                    })
+    # --- 3. Load different file types ---
+    print("Loading Markdown documents...")
+    md_loader = DirectoryLoader(SOURCE_DIRECTORY, glob="**/*.md", loader_cls=TextLoader, show_progress=True, recursive=True)
+    md_docs = md_loader.load()
 
-        print(f"📖 Added {len([c for c in all_chunks if any(m['source'] == src for m in metadata_list for src in builtin_knowledge.keys())])} chunks from built-in knowledge")
+    print("Loading source code documents...")
+    code_extensions = ["**/*.py", "**/*.c", "**/*.h", "**/*.cc", "**/*.hh", "**/*.def"]
+    code_docs = []
+    for ext in code_extensions:
+        loader = DirectoryLoader(SOURCE_DIRECTORY, glob=ext, loader_cls=TextLoader, show_progress=True, recursive=True)
+        code_docs.extend(loader.load())
 
-        # PART 2: Documents from the documents folder
-        processed_files_count = 0
-        if os.path.exists(DOCUMENTS_PATH):
-            for filename in os.listdir(DOCUMENTS_PATH):
-                filepath = os.path.join(DOCUMENTS_PATH, filename)
-                file_lower = filename.lower()
-                full_text = ""
-                doc_type = "unknown"
+    if not md_docs and not code_docs:
+        print("⚠️ No documents found to ingest.")
+        return
 
-                if file_lower.endswith(".pdf"):
-                    doc_type = "pdf"
-                    print(f"📄 Processing PDF: {filename}...")
-                    try:
-                        doc = fitz.open(filepath)
-                        for page_num, page in enumerate(doc):
-                            page_text = page.get_text()
-                            full_text += f"\n[Page {page_num + 1}]\n{page_text}"
-                        doc.close()
-                    except Exception as e:
-                        print(f"   - Error processing PDF {filename}: {e}")
-                        continue
+    # --- 4. Process each document type with the correct splitter ---
+    # Process Markdown files
+    md_chunks = []
+    if md_docs:
+        headers_to_split_on = [("##", "Section")]
+        markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+        for doc in md_docs:
+            md_chunks.extend(markdown_splitter.split_text(doc.page_content))
 
-                elif file_lower.endswith((".ll", ".yy", ".st", ".txt", ".md")):
-                    doc_type = file_lower.split('.')[-1]
-                    print(f"📄 Processing Text File ({doc_type}): {filename}...")
-                    try:
-                        with open(filepath, "r", encoding="utf-8") as f:
-                            full_text = f.read()
-                    except Exception as e:
-                        print(f"   - Error reading text file {filename}: {e}")
-                        continue
-                
-                if full_text:
-                    processed_files_count += 1
-                    # Split the extracted text into chunks
-                    chunks = text_splitter.split_text(full_text)
-                    for i, chunk in enumerate(chunks):
-                        if chunk.strip():
-                            all_chunks.append(chunk.strip())
-                            metadata_list.append({
-                                "source": filename,
-                                "type": doc_type,
-                                "chunk_id": len(all_chunks) - 1
-                            })
-                    print(f"📊 Created {len(chunks)} chunks from {filename}")
+    # Process code files
+    code_chunks = []
+    if code_docs:
+        code_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        code_chunks = code_splitter.split_documents(code_docs)
 
-        if processed_files_count == 0:
-            print("📁 No processable files found in documents folder.")
+    # Combine all chunks
+    all_chunks = md_chunks + code_chunks
 
-        # PART 3: Store in ChromaDB
-        if not all_chunks:
-            print("⚠️ No content to ingest.")
-            return
+    print(f"Split {len(md_docs) + len(code_docs)} documents into {len(all_chunks)} chunks.")
 
-        # Generate embeddings
-        print("🔄 Generating embeddings...")
-        embeddings = embedding_model.encode(all_chunks).tolist()
+    if not all_chunks:
+        print("⚠️ No chunks created after splitting. Check document content.")
+        return
 
-        # Create unique IDs
-        ids = [f"chunk_{i}" for i in range(len(all_chunks))]
-
-        # Add to collection with metadata
-        collection.add(
-            embeddings=embeddings,
-            documents=all_chunks,
-            ids=ids,
-            metadatas=metadata_list
-        )
-
-        print(f"✅ Successfully ingested {len(all_chunks)} total chunks into knowledge base")
-        
-        # Ingestion summary
-        type_counts = {}
-        for m in metadata_list:
-            doc_type = m.get('type', 'unknown')
-            type_counts[doc_type] = type_counts.get(doc_type, 0) + 1
-        print("📊 Ingestion Summary:")
-        for doc_type, count in type_counts.items():
-            print(f"   - {doc_type.capitalize()}: {count} chunks")
-
-    except Exception as e:
-        print(f"❌ Error during document ingestion: {e}")
-        raise
-
-def get_builtin_iec_knowledge() -> Dict[str, str]:
-    """Returns built-in IEC 61131-3 knowledge for immediate use."""
-    return {
-        "IEC_61131_3_Core_Principles": """
-IEC 61131-3 Structured Text (ST) Core Principles:
-
-1. Program Structure: A program must start with PROGRAM and end with END_PROGRAM.
-All executable logic must be placed between the BEGIN and END_PROGRAM keywords.
-The section between VAR and BEGIN is strictly for variable declarations.
-
-2. PLC Scan Cycle: The entire BEGIN...END_PROGRAM block is executed from top to bottom
-repeatedly in a fast, continuous loop called the scan cycle. Therefore, you must not
-use WHILE, REPEAT, or FOR loops for the main program flow, as this will cause an
-infinite loop within a single scan cycle and halt the PLC.
-
-3. Comment Syntax: The only valid syntax for comments is (* This is a comment *).
-The // and /* ... */ styles are not supported and will cause compilation errors.
-
-4. Variable Declaration: All variables must be declared in a VAR...END_VAR block before
-the BEGIN keyword. Example: MyVariable : INT := 0;
-""",
-
-        "MATIEC_Compiler_Strictness": """
-MATIEC Compiler Specifics and Strictness:
-
-MATIEC is a very strict IEC 61131-3 to C compiler. It enforces rules that other compilers might ignore.
-
-Common MATIEC Errors and Solutions:
-1. Comment Syntax: ONLY `(* comment *)` is allowed. `//` and `/* */` will cause a syntax error.
-2. Variable Initialization: While optional in the standard, it's best practice to initialize all variables in the `VAR` block. Example: `MyVar : INT := 0;`
-3. Function Block Instances: You cannot call function blocks like `TON` or `TOF` directly. You must first declare an instance of it in the `VAR` block. Example: `MyTimer : TON;` and then call it in the body: `MyTimer(IN:=Start, PT:=T#5s);`
-4. No GOTO: The `GOTO` statement is not supported and is considered bad practice.
-5. Case Sensitivity: While the standard is case-insensitive for keywords, MATIEC can be sensitive with variable names depending on the platform. Stick to a consistent case.
-6. END_VAR; Semicolon: Ensure there is a semicolon after `END_VAR`.
-7. ELSIF, not ELSE IF: The correct keyword is `ELSIF`. `ELSE IF` with a space will cause an error.
-""",
-
-        "IEC_61131_3_Data_Types": """
-Standard IEC 61131-3 Data Types:
-
-Elementary Data Types:
-- BOOL: Boolean (TRUE/FALSE)
-- SINT: Short integer (-128 to 127)
-- INT: Integer (-32768 to 32767)
-- DINT: Double integer (-2147483648 to 2147483647)
-- REAL: Real numbers (floating point)
-- TIME: Duration (T#1s, T#100ms, etc.)
-- STRING: Text strings
-
-Bit Strings:
-- BYTE: 8 bits
-- WORD: 16 bits
-- DWORD: 32 bits
-
-Variable Declaration Examples:
-- MyBoolean : BOOL := FALSE;
-- Temperature : REAL := 20.5;
-- Counter : INT := 0;
-- DelayTime : TIME := T#5s;
-""",
-
-        "IEC_61131_3_Operators": """
-IEC 61131-3 Operators and Expressions:
-
-Comparison Operators:
-- = (equal to)
-- <> (not equal to)
-- < (less than)
-- <= (less than or equal to)
-- > (greater than)
-- >= (greater than or equal to)
-
-Logical Operators:
-- AND (logical and)
-- OR (logical or)
-- XOR (exclusive or)
-- NOT (logical not)
-
-Arithmetic Operators:
-- + (addition)
-- - (subtraction)
-- * (multiplication)
-- / (division)
-- MOD (modulo)
-
-Assignment:
-- := (assignment operator)
-""",
-
-        "Timer_Implementation_Guidelines": """
-Timer Implementation Without TON Function Blocks:
-
-Since standard function blocks like TON are not always available, implement timers using:
-
-1. TIME variables to store start times
-2. Manual elapsed time calculation
-3. Boolean flags for timer state
-
-Example Timer Pattern:
-
-VAR
-    TimerStartTime : TIME;
-    TimerActive : BOOL := FALSE;
-    TimerDone : BOOL := FALSE;
-    DelayPeriod : TIME := T#5s;
-END_VAR
-
-BEGIN
-    IF StartCondition AND NOT TimerActive THEN
-        TimerStartTime := CURRENT_TIME;
-        TimerActive := TRUE;
-        TimerDone := FALSE;
-    END_IF;
-    
-    IF TimerActive AND ((CURRENT_TIME - TimerStartTime) >= DelayPeriod) THEN
-        TimerDone := TRUE;
-        TimerActive := FALSE;
-    END_IF;
-END_PROGRAM
-""",
-
-        "Safety_and_Best_Practices": """
-Safety and Best Practices for PLC Programming:
-
-1. Emergency Stop Priority: Always check emergency stop conditions first
-2. Fail-Safe Design: Default to safe states when conditions are uncertain
-3. Input Validation: Validate sensor inputs before using them
-4. Interlocking: Prevent unsafe operational combinations
-5. Clear Variable Names: Use descriptive names (StartButton vs Inp1)
-6. Consistent Naming: Choose either snake_case or PascalCase and stick to it
-7. Magic Numbers: Use named constants instead of hardcoded values
-8. Modular Logic: Break complex logic into clear conditional blocks
-9. Comments: Document complex logic and safety considerations
-10. Testing Values: Use static TRUE/FALSE values for initial testing
-""",
-
-        "Common_Control_Patterns": """
-Common PLC Control Patterns:
-
-1. Start/Stop with Latching:
-IF StartButton AND NOT StopButton THEN
-    MotorRunning := TRUE;
-ELSIF StopButton THEN
-    MotorRunning := FALSE;
-END_IF;
-
-2. Sequential Control:
-CASE CurrentStep OF
-    0: (* Initialize *)
-        IF InitComplete THEN CurrentStep := 1; END_IF;
-    1: (* Step 1 *)
-        IF Step1Complete THEN CurrentStep := 2; END_IF;
-    2: (* Step 2 *)
-        IF Step2Complete THEN CurrentStep := 0; END_IF;
-END_CASE;
-
-3. Counter Implementation:
-IF CountEnable AND CountInput THEN
-    Counter := Counter + 1;
-    CountInput := FALSE; (* Edge detection *)
-END_IF;
-
-4. Alarm Logic:
-IF ProcessValue > HighLimit THEN
-    HighAlarm := TRUE;
-ELSIF ProcessValue < (HighLimit - Hysteresis) THEN
-    HighAlarm := FALSE;
-END_IF;
-"""
-    }
+    # Create and persist the vector store
+    vector_store = Chroma.from_documents(all_chunks, embeddings, persist_directory=PERSIST_DIRECTORY)
+    vector_store.persist()
+    print(f"✅ Ingestion complete. Vector store persisted to {PERSIST_DIRECTORY}")
 
 def query_knowledge_base(query: str, max_results: int = 3) -> str:
-    """Enhanced knowledge base query with better result processing."""
-    global collection, embedding_model
+    """Queries the knowledge base and returns a formatted string of results."""
+    global db
 
-    if collection is None or embedding_model is None:
+    if db is None:
         return "Error: Knowledge base is not initialized."
 
-    if collection.count() == 0:
-        return "Knowledge base is empty. Please ensure the ingestion process has run successfully."
+    if db._collection.count() == 0:
+        return "Knowledge base is empty. Please run the ingestion script."
 
     try:
-        # Generate query embedding
-        query_embedding = embedding_model.encode([query]).tolist()
+        # Use similarity search to get documents
+        results = db.similarity_search(query, k=max_results)
 
-        # Enhanced query with metadata filtering
-        results = collection.query(
-            query_embeddings=query_embedding,
-            n_results=max_results,
-            include=['documents', 'metadatas', 'distances']
-        )
-
-        # Process results with metadata
-        docs = results.get('documents', [[]])
-        metadatas = results.get('metadatas', [[]])
-        distances = results.get('distances', [[]])
-
-        if not docs or not docs[0]:
+        if not results:
             return "No relevant information found for that query."
 
         # Format results with source attribution
         formatted_results = []
-        for i, doc in enumerate(docs[0]):
-            if doc and doc.strip():
-                metadata = metadatas[0][i] if metadatas and metadatas[0] else {}
-                source = metadata.get('source', 'unknown')
-                doc_type = metadata.get('type', 'unknown')
-                formatted_doc = f"[Source: {source} ({doc_type})]\n{doc.strip()}"
-                formatted_results.append(formatted_doc)
+        for doc in results:
+            source = doc.metadata.get('source', 'unknown')
+            # The new splitter adds metadata like {'Section': 'Header Text'}
+            section = doc.metadata.get('Section', '')
+            source_display = f"{os.path.basename(source)}"
+            if section:
+                source_display += f" > {section}"
+            
+            formatted_doc = f"[Source: {source_display}]\n{doc.page_content.strip()}"
+            formatted_results.append(formatted_doc)
 
         if not formatted_results:
             return "No relevant information found for that query."
@@ -390,30 +154,20 @@ def query_knowledge_base(query: str, max_results: int = 3) -> str:
     except Exception as e:
         return f"An error occurred while querying the knowledge base: {e}"
 
-def add_to_knowledge_base(documents: List[str], ids: List[str], metadatas: List[Dict] = None) -> bool:
+def add_to_knowledge_base(documents: List[str], metadatas: List[Dict] = None) -> bool:
     """Add new documents to the knowledge base."""
-    global collection, embedding_model
+    global db
 
     try:
-        if collection is None or embedding_model is None:
+        if db is None:
             print("❌ Knowledge base not initialized")
             return False
+        
+        from langchain.docstore.document import Document
+        docs_to_add = [Document(page_content=d, metadata=m or {}) for d, m in zip(documents, metadatas or [{} for _ in documents])]
 
-        embeddings = embedding_model.encode(documents).tolist()
-
-        if metadatas:
-            collection.add(
-                embeddings=embeddings,
-                documents=documents,
-                ids=ids,
-                metadatas=metadatas
-            )
-        else:
-            collection.add(
-                embeddings=embeddings,
-                documents=documents,
-                ids=ids
-            )
+        db.add_documents(docs_to_add)
+        db.persist()
 
         print(f"✅ Added {len(documents)} new documents to knowledge base")
         return True
@@ -424,78 +178,64 @@ def add_to_knowledge_base(documents: List[str], ids: List[str], metadatas: List[
 
 def get_knowledge_stats() -> Dict:
     """Get statistics about the knowledge base."""
-    global collection
+    global db
 
-    if collection is None:
-        return {"error": "Knowledge base not initialized"}
-
-    try:
-        count = collection.count()
-
-        # Get sample of metadatas to analyze sources
-        sample_size = min(100, count)
-        if count > 0:
-            sample = collection.get(limit=sample_size, include=['metadatas'])
-            metadatas = sample.get('metadatas', [])
-
-            sources = {}
-            for metadata in metadatas:
-                source = metadata.get('source', 'unknown')
-                doc_type = metadata.get('type', 'unknown')
-                key = f"{source} ({doc_type})"
-                sources[key] = sources.get(key, 0) + 1
+    if db is None:
+        # Try to load it to get stats without fully initializing
+        if os.path.exists(PERSIST_DIRECTORY):
+            try:
+                temp_db = Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=HuggingFaceEmbeddings(model_name=EMBEDDINGS_MODEL_NAME))
+                count = temp_db._collection.count()
+            except Exception:
+                count = 0
         else:
-            sources = {}
+            count = 0
+    else:
+        count = db._collection.count()
 
+    if count == 0:
         return {
-            "total_chunks": count,
-            "sources": sources,
-            "status": "healthy" if count > 0 else "empty"
+            "total_chunks": 0,
+            "sources": {},
+            "status": "empty"
         }
 
-    except Exception as e:
-        return {"error": f"Failed to get stats: {e}"}
+    source_display_name = os.path.relpath(SOURCE_DIRECTORY, ROOT_DIR)
+    return {
+        "total_chunks": count,
+        "sources": {source_display_name: "Multiple files (Markdown, Code)"},
+        "status": "healthy"
+    }
 
 def search_knowledge_base(query: str, source_filter: Optional[str] = None) -> List[Dict]:
     """Advanced search with filtering and ranking."""
-    global collection, embedding_model
+    global db
 
-    if collection is None or embedding_model is None:
+    if db is None:
         return []
 
     try:
-        query_embedding = embedding_model.encode([query]).tolist()
-
-        # Advanced query with filtering
-        where_filter = {}
+        # Langchain Chroma wrapper's filter is a bit different.
+        # It takes a dictionary for metadata filtering.
+        filter_dict = {}
         if source_filter:
-            where_filter = {"source": {"$eq": source_filter}}
+            filter_dict = {"source": source_filter}
 
-        results = collection.query(
-            query_embeddings=query_embedding,
-            n_results=5,
-            include=['documents', 'metadatas', 'distances'],
-            where=where_filter if where_filter else None
-        )
+        results = db.similarity_search_with_relevance_scores(query, k=5, filter=filter_dict)
 
         # Format as structured results
         formatted_results = []
-        docs = results.get('documents', [[]])
-        metadatas = results.get('metadatas', [[]])
-        distances = results.get('distances', [[]])
+        for doc, score in results:
+            metadata = doc.metadata
+            source = metadata.get('source', 'unknown')
+            section = metadata.get('Section', '')
 
-        for i, doc in enumerate(docs[0] if docs else []):
-            if doc:
-                metadata = metadatas[0][i] if metadatas and len(metadatas[0]) > i else {}
-                distance = distances[0][i] if distances and len(distances[0]) > i else 1.0
-
-                formatted_results.append({
-                    "content": doc,
-                    "source": metadata.get('source', 'unknown'),
-                    "type": metadata.get('type', 'unknown'),
-                    "relevance_score": 1 - distance,
-                    "chunk_id": metadata.get('chunk_id', i)
-                })
+            formatted_results.append({
+                "content": doc.page_content,
+                "source": source,
+                "section": section,
+                "relevance_score": score,
+            })
 
         return formatted_results
 

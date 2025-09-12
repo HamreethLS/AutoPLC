@@ -9,7 +9,7 @@ import time
 import re
 
 from backend.utils.nim_client import enhanced_nim_client
-from typing import Dict
+from typing import Dict, Any
 
 class SimulatorAgent:
     """Simulator Agent - integrates with the OpenPLC runtime."""
@@ -144,3 +144,59 @@ You are a UI/UX expert for industrial automation dashboards. Your task is to cre
             return {"success": False, "error": f"LLM returned invalid JSON for dashboard: {e}. Response: {response_str}"}
         except Exception as e:
             return {"success": False, "error": f"Failed to generate dashboard definition: {e}"}
+
+    async def run_simulation_step(self, code: str, current_state: Dict[str, Any]) -> Dict:
+        """
+        Uses a powerful LLM to simulate a single scan cycle of the ST code.
+        """
+        state_json = json.dumps(current_state, indent=2)
+
+        simulation_prompt = f"""
+You are a world-class PLC (Programmable Logic Controller) runtime simulator. Your task is to execute a single scan cycle of an IEC 61131-3 Structured Text program and determine the new state of all variables.
+
+**Current Variable State (JSON):**
+---
+{state_json}
+---
+
+**Structured Text (ST) Code to Execute:**
+---
+```st
+{code}
+```
+---
+
+**Instructions:**
+1.  **Analyze the Current State:** Start with the variable values provided in the JSON above.
+2.  **Execute the Logic:** Read the ST code from top to bottom, as a real PLC would in one scan cycle.
+3.  **Update Variables:** As you execute, calculate the new values for any variables that are assigned a value (using `:=`).
+4.  **Return Final State:** After executing the entire `BEGIN...END_PROGRAM` block, provide the complete, updated state of ALL variables.
+5.  **Output Format:** Your output MUST be a single, valid JSON object representing the final state of all variables. The keys should be the variable names (case-insensitive, but prefer original casing if known) and the values should be their new state (`true`/`false` for BOOLs, numbers for INTs, etc.).
+
+**New Variable State (JSON only):**
+"""
+        try:
+            # Use a powerful model capable of logical execution
+            response_str = await enhanced_nim_client.call_agent_simple(
+                agent_role="validator", # Nemotron Ultra is good for this
+                prompt=simulation_prompt,
+                temperature=0.0, # We want deterministic execution
+                max_tokens=1024
+            )
+
+            # Clean and parse the JSON
+            json_match = re.search(r'\{.*\}', response_str, re.DOTALL)
+            if not json_match:
+                raise json.JSONDecodeError("No JSON object found in LLM response.", response_str, 0)
+
+            new_state = json.loads(json_match.group(0))
+            
+            # Normalize keys to uppercase for consistency, as ST is case-insensitive for variables
+            normalized_state = {k.upper(): v for k, v in new_state.items()}
+
+            return {"success": True, "new_state": normalized_state}
+
+        except json.JSONDecodeError as e:
+            return {"success": False, "error": f"LLM returned invalid JSON for simulation step: {e}. Response: {response_str}", "new_state": current_state}
+        except Exception as e:
+            return {"success": False, "error": f"Failed to run simulation step: {e}", "new_state": current_state}

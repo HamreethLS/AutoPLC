@@ -3,13 +3,28 @@ Flask
 Flask-CORS
 #Agentic AI
 pyautogen[openai,gemini]
+# Web Framework
+fastapi
+uvicorn[standard]
+python-multipart
+websockets
 
 # NVIDIA NIM and AI Libraries  
+# AI & LLM
 requests
 openai
+aiohttp
 python-dotenv
 
 # Knowledge Base and RAG
+# Database
+sqlalchemy
+aiosqlite
+
+# Knowledge Base (RAG)
+langchain
+langchain-community
+langchain-text-splitters
 chromadb
 sentence-transformers
 langchain
@@ -33,6 +48,7 @@ asyncio
 flask-debugtoolbar
 
 # Production Server (Optional)
+# Production
 gunicorn
 waitress
 

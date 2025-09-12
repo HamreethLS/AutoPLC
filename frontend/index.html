@@ -26,7 +26,9 @@
             <div id="projects-view" class="view active">
                 <div class="view-header">
                     <h1 class="view-title">Project Manager</h1>
-                    <button class="btn btn-primary" id="create-project-btn">New Project</button>
+                    <button class="btn-icon btn-primary" id="create-project-btn" title="New Project">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
                 </div>
                 <div class="table-container" id="projects-table-container">
                     <!-- System health, alerts, and agent status will be rendered here by app.js -->
@@ -38,12 +40,24 @@
                 <div class="view-header">
                     <h1 class="view-title" id="project-detail-title">Project Details</h1>
                     <div class="project-actions">
-                        <button class="btn" id="copy-code-btn" disabled>Copy Code</button>
-                        <button class="btn" id="download-code-btn" disabled>Download .st</button>
-                        <button class="btn" id="compile-btn" disabled>Compile</button>
-                        <button class="btn" id="simulate-btn" disabled>Simulate Logic</button>
-                        <button class="btn" id="view-log-btn">View Full Agent Log</button>
-                        <button class="btn" id="back-to-projects-btn">Back to Projects</button>
+                        <button class="btn-icon" id="copy-code-btn" title="Copy Code" disabled>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 16H6C4.89543 16 4 15.1046 4 14V6C4 4.89543 4.89543 4 6 4H14C15.1046 4 16 4.89543 16 6V8M10 10H18C19.1046 10 20 10.8954 20 12V20C20 21.1046 19.1046 22 18 22H10C8.89543 22 8 21.1046 8 20V12C8 10.8954 8.89543 10 10 10Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button class="btn-icon" id="download-code-btn" title="Download .st File" disabled>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3V15M12 15L16 11M12 15L8 11M4 17V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button class="btn-icon" id="compile-btn" title="Compile Code" disabled>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 22V12M12 12L9 9M12 12L15 9M20 10.5V6.5L17.5 5L12 2L6.5 5L4 6.5V10.5L12 15L20 10.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button class="btn-icon" id="simulate-btn" title="Simulate Logic" disabled>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 17.5L17 12L7 6.5V17.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 4H20V20H4V4Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button class="btn-icon" id="view-log-btn" title="View Full Agent Log">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 6H20M4 12H20M4 18H12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button class="btn-icon" id="back-to-projects-btn" title="Back to Projects">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
                     </div>
                 </div>
                 <div class="agent-status-container" id="agent-status-container">
@@ -63,7 +77,9 @@
                         <div class="prompt-area">
                             <form id="feedback-form">
                                 <textarea id="feedback-prompt" placeholder="Provide feedback or new instructions to refine the code..." rows="3" disabled></textarea>
-                                <button type="submit" class="btn btn-primary" id="feedback-submit-btn" disabled>Send Feedback</button>
+                                <button type="submit" class="btn-icon btn-primary" id="feedback-submit-btn" title="Send Feedback" disabled>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M22 2L11 13M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                </button>
                             </form>
                         </div>
                     </div>
@@ -124,7 +140,9 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn" id="reset-simulation-btn">Reset Simulation</button>
+                <button class="btn-icon" id="reset-simulation-btn" title="Reset Simulation">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M23 4V10H17M1 20V14H7M3.51 9.855A9 9 0 0 1 21.49 14.145" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20.49 9.855A9 9 0 0 1 2.51 14.145" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
             </div>
         </div>
     </div>
@@ -145,8 +163,12 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn" id="cancel-create-btn">Cancel</button>
-                <button type="submit" form="create-project-form" class="btn btn-primary">Create</button>
+                <button type="button" class="btn-icon" id="cancel-create-btn" title="Cancel">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button type="submit" form="create-project-form" class="btn-icon btn-primary" title="Create Project">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
             </div>
         </div>
     </div>
